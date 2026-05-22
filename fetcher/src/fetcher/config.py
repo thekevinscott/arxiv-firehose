@@ -29,6 +29,8 @@ source = "arxiv"
 concurrency = 1
 # When a paper has no arxiv HTML, fall back to converting its LaTeX source.
 latex_fallback = true
+# Last resort: when a paper has no HTML and no usable LaTeX, convert its PDF.
+pdf_fallback = true
 
 [ingest]
 # Skip papers older than this many days on first sync. 0 = take all of RSS.
@@ -44,6 +46,7 @@ class FetchConfig(BaseModel):
     source: Literal["arxiv"] = "arxiv"
     concurrency: int = 1
     latex_fallback: bool = True
+    pdf_fallback: bool = True
 
 
 class IngestConfig(BaseModel):

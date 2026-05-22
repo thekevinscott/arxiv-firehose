@@ -153,8 +153,9 @@ def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None
     The archive is extracted to a temporary directory, the main .tex located,
     and pandoc run against it; the temp dir is discarded. *pandoc* is the
     conversion seam, defaulting to the time-bounded ``_default_pandoc``.
-    Raises ``ValueError`` when the archive carries no usable LaTeX source, or
-    when pandoc overruns its timeout.
+    Raises ``ValueError`` when the archive carries no usable LaTeX source,
+    when pandoc overruns its timeout, or when pandoc rejects the LaTeX
+    (a non-zero exit) -- all expected outcomes for an adversarial paper.
     """
     if pandoc is None:
         pandoc = _default_pandoc
@@ -179,6 +180,35 @@ def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None
             raise ValueError(
                 f"LaTeX conversion exceeded the {_PANDOC_TIMEOUT_S}s pandoc timeout"
             ) from exc
+        except subprocess.CalledProcessError as exc:
+            raise ValueError(
+                f"pandoc rejected the LaTeX source (exit {exc.returncode})"
+            ) from exc
+
+
+def _default_pdf_convert(pdf: bytes) -> str:
+    """Convert PDF bytes to markdown with pymupdf4llm (lazily imported)."""
+    import pymupdf
+    import pymupdf4llm
+
+    doc = pymupdf.open(stream=pdf, filetype="pdf")
+    try:
+        return pymupdf4llm.to_markdown(doc, show_progress=False)
+    finally:
+        doc.close()
+
+
+def pdf_to_markdown(pdf: bytes, *, convert: Callable[[bytes], str] | None = None) -> str:
+    """Convert a paper's PDF to markdown -- the last-resort conversion path.
+
+    Reached only for a paper with neither arxiv HTML nor a usable LaTeX
+    e-print. arxiv PDFs are LaTeX-generated (a real text layer, never
+    scanned), so a text extractor recovers prose well; math and tables
+    degrade to plain text. *convert* is the seam, defaulting to pymupdf4llm.
+    """
+    if convert is None:
+        convert = _default_pdf_convert
+    return convert(pdf)
 
 
 def _is_substantial(md: str) -> bool:
@@ -190,13 +220,16 @@ def _is_substantial(md: str) -> bool:
 class Converter:
     """The conversion seam ``fetch`` injects.
 
-    Bundles the two byte->markdown callables so an integration test can swap
-    in a fake without arxiv2md or pypandoc ever being called.
+    Bundles the three byte->markdown callables so an integration test can swap
+    in a fake without arxiv2md, pypandoc or pymupdf4llm ever being called.
     """
 
     html: Callable[[bytes], str]
     latex: Callable[[bytes], str]
+    pdf: Callable[[bytes], str]
 
 
 # The production converter: the real libraries, lazily imported on first call.
-REAL_CONVERTER = Converter(html=html_to_markdown, latex=latex_to_markdown)
+REAL_CONVERTER = Converter(
+    html=html_to_markdown, latex=latex_to_markdown, pdf=pdf_to_markdown
+)

@@ -15,6 +15,7 @@ dependencies = [
     "cachetta>=0.6.3",
     "arxiv2markdown~=0.1.0",
     "pypandoc-binary>=1.13",
+    "pymupdf4llm>=1.27.2.3",
 ]
 
 [project.optional-dependencies]

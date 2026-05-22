@@ -24,6 +24,7 @@ from fetcher.convert import (
     _safe_extract_tar,
     html_to_markdown,
     latex_to_markdown,
+    pdf_to_markdown,
 )
 
 
@@ -117,6 +118,20 @@ def describe_latex_to_markdown():
         with pytest.raises(ValueError):
             latex_to_markdown(b"%PDF-1.7\nnot latex", pandoc=lambda *a, **k: "")
 
+    def it_raises_valueerror_when_pandoc_rejects_the_latex():
+        # pandoc exits 64 on LaTeX it cannot parse. That is an expected
+        # outcome for an adversarial paper, not a converter blow-up, so it
+        # must surface as ValueError -- the same clean signal as a timeout --
+        # not leak CalledProcessError to fetch's generic catch-all.
+        def failing_pandoc(path, to, *, format, extra_args=None, cworkdir=None):
+            raise subprocess.CalledProcessError(returncode=64, cmd=["pandoc"])
+
+        body = _make_tar({
+            "main.tex": b"\\documentclass{article}\\begin{document}x\\end{document}",
+        })
+        with pytest.raises(ValueError):
+            latex_to_markdown(body, pandoc=failing_pandoc)
+
     def it_raises_valueerror_when_pandoc_times_out():
         # pandoc parses a custom verbatim env as ordinary LaTeX; an adversarial
         # paper can spin its parser for minutes. A timeout must surface as a
@@ -130,6 +145,20 @@ def describe_latex_to_markdown():
         })
         with pytest.raises(ValueError):
             latex_to_markdown(body, pandoc=slow_pandoc)
+
+
+def describe_pdf_to_markdown():
+    def it_hands_the_pdf_bytes_to_the_converter():
+        seen = []
+
+        def fake_convert(pdf: bytes) -> str:
+            seen.append(pdf)
+            return "# Converted from PDF"
+
+        out = pdf_to_markdown(b"%PDF-1.7\nbody", convert=fake_convert)
+
+        assert out == "# Converted from PDF"
+        assert seen == [b"%PDF-1.7\nbody"]
 
 
 def describe__run_with_timeout():

@@ -3,14 +3,15 @@
 Every paper is fetched on every run -- there is no "already on disk, skip"
 shortcut. Network reads go through the cachetta-backed downloaders (see
 download.py), which serve bytes from the on-disk cache or the network
-transparently. Two conversion paths yield the markdown:
+transparently. Three conversion paths yield the markdown, tried in order:
 
   1. arxiv native HTML (the primary path) -> markdown.
   2. for a paper with no arxiv HTML, the LaTeX e-print source -> markdown.
+  3. last resort, when neither of the above works, the paper's PDF -> markdown.
 
 Only the markdown lands in the data dir: ``{id}/paper.md`` (or a
-``.no_markdown`` marker when neither path produces anything). The PDF and the
-raw LaTeX are never written to disk -- intermediate bytes live only in the
+``.no_markdown`` marker when no path produces anything). The PDF and the raw
+LaTeX are never written to disk -- intermediate bytes live only in the
 cachetta cache.
 """
 
@@ -102,6 +103,32 @@ def _markdown_from_latex(
     return md
 
 
+def _markdown_from_pdf(
+    download, url: str, converter: Converter, log: logging.Logger, arxiv_id: str
+) -> str | None:
+    """Fetch the paper's PDF and convert it -- the last-resort path.
+
+    Reached only when a paper has neither arxiv HTML nor a usable LaTeX
+    e-print. arxiv's /pdf/ endpoint serves every paper, so this rarely
+    returns None; a thin or failed render still can.
+    """
+    try:
+        body = download(url)
+    except httpx.HTTPError as exc:
+        log.warning("pdf  %s: %s", arxiv_id, _http_error_summary(exc))
+        return None
+    try:
+        md = converter.pdf(body)
+    except Exception as exc:  # noqa: BLE001 -- a converter blow-up must not abort
+        log.warning("pdf  %s: conversion failed: %s", arxiv_id, exc)
+        return None
+    if not _is_substantial(md):
+        log.debug("pdf  %s: render too thin, ignoring", arxiv_id)
+        return None
+    log.info("pdf  %s: HTTP 200", arxiv_id)
+    return md
+
+
 def run(
     data_dir: Path,
     cache_dir: Path,
@@ -117,7 +144,8 @@ def run(
     # takes a deterministic prefix.
     paper_dirs = list(iter_paper_dirs(data_dir))
 
-    counts = {"html": 0, "latex": 0, "absent": 0, "failed": 0, "skipped": 0}
+    counts = {"html": 0, "latex": 0, "pdf": 0, "absent": 0, "failed": 0,
+              "skipped": 0}
     processed = 0
 
     log.info("fetch start: %d papers known, cache=%s, latex_fallback=%s",
@@ -135,6 +163,7 @@ def run(
             arxiv_id = meta["arxiv_id"]
             html_url = meta["html_url"]
             source_url = meta["source_url"]
+            pdf_url = meta["pdf_url"]
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
             counts["skipped"] += 1
             log.error("skip %s: bad metadata.json", pd.name)
@@ -147,7 +176,8 @@ def run(
 
         marker = pd / ".no_markdown"
         try:
-            # Primary: arxiv native HTML. Fallback: the LaTeX e-print source.
+            # Primary: arxiv native HTML. Fallbacks, in order: the LaTeX
+            # e-print source, then the PDF.
             md = _markdown_from_html(fetch_html, html_url, converter, log, arxiv_id)
             source = "html"
             if md is None and config.fetch.latex_fallback:
@@ -155,6 +185,9 @@ def run(
                     download, source_url, converter, log, arxiv_id
                 )
                 source = "latex"
+            if md is None and config.fetch.pdf_fallback:
+                md = _markdown_from_pdf(download, pdf_url, converter, log, arxiv_id)
+                source = "pdf"
 
             if md is not None:
                 size = _write_markdown(md, markdown_path(data_dir, arxiv_id))

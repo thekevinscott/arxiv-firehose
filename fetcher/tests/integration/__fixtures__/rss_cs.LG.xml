@@ -37,6 +37,16 @@ Abstract: A third fixture paper with no arxiv HTML but a LaTeX e-print archive, 
       <pubDate>Mon, 01 Jan 2024 19:10:00 -0500</pubDate>
     </item>
     <item>
+      <title>A Fourth Sample Paper With No Representation At All</title>
+      <link>https://arxiv.org/abs/2401.00004v1</link>
+      <description>arXiv:2401.00004 Announce Type: new
+Abstract: A fourth fixture paper with no arxiv HTML, no e-print source, and no PDF -- every conversion path 404s, so it is the one paper that ends up with no markdown.</description>
+      <dc:creator>Katherine Johnson</dc:creator>
+      <category>cs.LG</category>
+      <guid isPermaLink="false">oai:arXiv.org:2401.00004v1</guid>
+      <pubDate>Mon, 01 Jan 2024 19:12:00 -0500</pubDate>
+    </item>
+    <item>
       <title>An Old Paper Revised Years Later</title>
       <link>https://arxiv.org/abs/2012.09999v3</link>
       <description>arXiv:2012.09999 Announce Type: replace

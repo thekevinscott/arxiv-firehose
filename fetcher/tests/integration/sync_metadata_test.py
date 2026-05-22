@@ -9,7 +9,7 @@ def describe_sync_metadata():
     def it_writes_a_metadata_folder_per_feed_entry(data_dir, cache_dir, fake_transport):
         added, updated = sync_metadata(data_dir, cache_dir, transport=fake_transport)
 
-        assert (added, updated) == (3, 0)
+        assert (added, updated) == (4, 0)
         meta = json.loads((data_dir / "2401.00001" / "metadata.json").read_text())
         assert meta["title"] == "A Sample Paper on Gradient Methods"
         assert meta["authors"] == ["Ada Lovelace", "Alan Turing"]
@@ -22,8 +22,8 @@ def describe_sync_metadata():
 
         # The feed carries a 'replace' item (arXiv:2012.09999, first announced
         # in 2020). fetcher mirrors only first announcements, so it never
-        # becomes a metadata folder -- the count stays 3, not 4.
-        assert added == 3
+        # becomes a metadata folder -- the count stays 4, not 5.
+        assert added == 4
         assert not (data_dir / "2012.09999").exists()
 
     def it_records_the_announcement_date_under_announced_at(
@@ -57,13 +57,13 @@ def describe_sync_metadata():
 
         # cachetta caches the feed for a day: no second arxiv request.
         assert fake_transport.calls == after_first
-        assert (added, updated) == (0, 3)
+        assert (added, updated) == (0, 4)
 
     def it_writes_a_last_sync_summary(data_dir, cache_dir, fake_transport):
         sync_metadata(data_dir, cache_dir, transport=fake_transport)
 
         summary = json.loads((data_dir / "last_sync.json").read_text())
-        assert summary["papers_added"] == 3
+        assert summary["papers_added"] == 4
         assert summary["categories"] == ["cs.LG"]
 
     def it_makes_no_request_on_a_dry_run(data_dir, cache_dir, fake_transport):

@@ -19,6 +19,7 @@ FIXTURES = Path(__file__).parent / "__fixtures__"
 # paper.md holds exactly what the converter produced.
 FAKE_HTML_MARKDOWN = "# Markdown from HTML\n\n" + "converted body text. " * 20
 FAKE_LATEX_MARKDOWN = "# Markdown from LaTeX\n\n" + "converted body text. " * 20
+FAKE_PDF_MARKDOWN = "# Markdown from PDF\n\n" + "converted body text. " * 20
 
 # A data dir is bootstrapped with this config so a run touches exactly one
 # feed (the fixture only provides cs.LG); the SDK would otherwise write a
@@ -31,6 +32,7 @@ include = ["cs.LG"]
 source = "arxiv"
 concurrency = 1
 latex_fallback = true
+pdf_fallback = true
 
 [ingest]
 backfill_days = 0
@@ -99,12 +101,16 @@ def _fake_latex(eprint: bytes) -> str:
 
 @pytest.fixture
 def fake_converter() -> Converter:
-    """A Converter that never calls arxiv2md or pypandoc.
+    """A Converter that never calls arxiv2md, pypandoc or pymupdf4llm.
 
     It returns deterministic sentinel markdown so an integration test can
     assert what fetch wrote without depending on the real libraries.
     """
-    return Converter(html=lambda html: FAKE_HTML_MARKDOWN, latex=_fake_latex)
+    return Converter(
+        html=lambda html: FAKE_HTML_MARKDOWN,
+        latex=_fake_latex,
+        pdf=lambda pdf: FAKE_PDF_MARKDOWN,
+    )
 
 
 @pytest.fixture
