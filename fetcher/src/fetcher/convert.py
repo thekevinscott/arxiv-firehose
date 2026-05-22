@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass
@@ -29,6 +30,11 @@ _PDF_MAGIC = b"%PDF"
 # Below this many non-whitespace characters a "conversion" is really an arxiv
 # "HTML not available" stub or an empty render -- treat it as no markdown.
 _MIN_MARKDOWN_CHARS = 200
+# pandoc parses a custom verbatim environment (\DefineVerbatimEnvironment) as
+# ordinary LaTeX; on a code-heavy appendix its parser backtracks for minutes.
+# pandoc has no wall-clock limit of its own, so fetcher imposes one -- any
+# legitimate paper converts in seconds, well under this.
+_PANDOC_TIMEOUT_S = 120
 
 
 def html_to_markdown(html: bytes, *, convert: Callable[[str], str] | None = None) -> str:
@@ -108,18 +114,50 @@ def _main_tex(directory: Path) -> Path | None:
     return max(texs, key=lambda p: p.stat().st_size)
 
 
+def _run_with_timeout(cmd: list[str], cwd: str | None, timeout: float) -> str:
+    """Run *cmd*, capture its stdout, and kill it if it overruns *timeout*.
+
+    ``subprocess.run(timeout=)`` SIGKILLs and reaps the child on expiry,
+    raising ``TimeoutExpired`` -- so an overrunning pandoc cannot spin
+    unbounded. A non-zero exit raises ``CalledProcessError``.
+    """
+    proc = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+        timeout=timeout, check=True,
+    )
+    return proc.stdout
+
+
+def _default_pandoc(
+    path: str, to: str, *, format: str,
+    extra_args: list[str] | None = None, cworkdir: str | None = None,
+) -> str:
+    """The production pandoc seam: the bundled pandoc binary, time-bounded.
+
+    ``pypandoc.convert_file`` offers no timeout, so fetcher invokes the binary
+    directly -- pypandoc still locates it -- through ``_run_with_timeout``.
+    """
+    import pypandoc
+
+    cmd = [
+        pypandoc.get_pandoc_path(),
+        "--from", format, "--to", to, path,
+        *(extra_args or []),
+    ]
+    return _run_with_timeout(cmd, cworkdir, _PANDOC_TIMEOUT_S)
+
+
 def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None) -> str:
     """Convert a LaTeX e-print archive to markdown via pandoc.
 
     The archive is extracted to a temporary directory, the main .tex located,
     and pandoc run against it; the temp dir is discarded. *pandoc* is the
-    conversion seam, defaulting to ``pypandoc.convert_file``. Raises
-    ``ValueError`` when the archive carries no usable LaTeX source.
+    conversion seam, defaulting to the time-bounded ``_default_pandoc``.
+    Raises ``ValueError`` when the archive carries no usable LaTeX source, or
+    when pandoc overruns its timeout.
     """
     if pandoc is None:
-        import pypandoc
-
-        pandoc = pypandoc.convert_file
+        pandoc = _default_pandoc
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
         if _extract_eprint(eprint, work) == 0:
@@ -131,11 +169,16 @@ def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None
         # working directory, not --resource-path -- so a multi-file paper
         # needs cworkdir at the extraction root or every include is dropped.
         # --resource-path additionally covers \includegraphics and resources.
-        return pandoc(
-            str(main), "gfm", format="latex",
-            extra_args=["--resource-path", str(work)],
-            cworkdir=str(work),
-        )
+        try:
+            return pandoc(
+                str(main), "gfm", format="latex",
+                extra_args=["--resource-path", str(work)],
+                cworkdir=str(work),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(
+                f"LaTeX conversion exceeded the {_PANDOC_TIMEOUT_S}s pandoc timeout"
+            ) from exc
 
 
 def _is_substantial(md: str) -> bool:

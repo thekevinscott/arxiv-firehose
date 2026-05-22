@@ -9,7 +9,10 @@ selection, delegation.
 
 import gzip
 import io
+import subprocess
+import sys
 import tarfile
+import time
 from pathlib import Path
 
 import pytest
@@ -17,6 +20,7 @@ import pytest
 from fetcher.convert import (
     _is_substantial,
     _main_tex,
+    _run_with_timeout,
     _safe_extract_tar,
     html_to_markdown,
     latex_to_markdown,
@@ -112,6 +116,40 @@ def describe_latex_to_markdown():
     def it_raises_when_the_eprint_is_pdf_only():
         with pytest.raises(ValueError):
             latex_to_markdown(b"%PDF-1.7\nnot latex", pandoc=lambda *a, **k: "")
+
+    def it_raises_valueerror_when_pandoc_times_out():
+        # pandoc parses a custom verbatim env as ordinary LaTeX; an adversarial
+        # paper can spin its parser for minutes. A timeout must surface as a
+        # plain ValueError so fetch routes the paper to .no_markdown like any
+        # other conversion miss -- never as an unbounded hang.
+        def slow_pandoc(path, to, *, format, extra_args=None, cworkdir=None):
+            raise subprocess.TimeoutExpired(cmd=["pandoc"], timeout=120)
+
+        body = _make_tar({
+            "main.tex": b"\\documentclass{article}\\begin{document}x\\end{document}",
+        })
+        with pytest.raises(ValueError):
+            latex_to_markdown(body, pandoc=slow_pandoc)
+
+
+def describe__run_with_timeout():
+    def it_returns_stdout_for_a_quick_command():
+        out = _run_with_timeout(
+            [sys.executable, "-c", "import sys; sys.stdout.write('hello')"],
+            cwd=None, timeout=10,
+        )
+        assert out == "hello"
+
+    def it_kills_a_command_that_exceeds_the_timeout():
+        # pandoc has no wall-clock limit of its own; the wrapper must kill an
+        # overrunning process, not wait it out.
+        start = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            _run_with_timeout(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                cwd=None, timeout=0.3,
+            )
+        assert time.monotonic() - start < 3  # killed near the timeout, not at 10s
 
 
 def describe__safe_extract_tar():
