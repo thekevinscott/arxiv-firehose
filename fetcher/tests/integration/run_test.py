@@ -9,6 +9,8 @@ Fixture papers:
   2401.00003 -- no HTML, LaTeX e-print -> markdown via the LaTeX fallback
 """
 
+import json
+
 from fetcher import run, status
 
 
@@ -57,6 +59,41 @@ def describe_run():
         assert all(c.startswith("https://arxiv.org/html/") for c in new_calls)
         assert result["fetch"]["html"] == 1
         assert result["fetch"]["latex"] == 1
+
+
+def describe_run_tracking():
+    def it_appends_one_record_per_run_to_runs_jsonl(
+        data_dir, cache_dir, fake_transport, fake_converter
+    ):
+        run(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
+        run(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
+
+        lines = (data_dir / "runs.jsonl").read_text().splitlines()
+        # One JSON object appended per run -- a durable history to investigate.
+        assert len(lines) == 2
+        assert all(json.loads(line) for line in lines)
+
+    def it_records_timing_and_counts_for_the_run(
+        data_dir, cache_dir, fake_transport, fake_converter
+    ):
+        run(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
+
+        rec = json.loads((data_dir / "runs.jsonl").read_text().splitlines()[0])
+        assert rec["started_at"] <= rec["finished_at"]
+        assert rec["duration_s"] >= 0
+        assert rec["added"] == 3
+        assert rec["updated"] == 0
+        assert rec["fetch"] == {"html": 1, "latex": 1, "absent": 1,
+                                "failed": 0, "skipped": 0}
+
+    def it_does_not_record_a_dry_run(
+        data_dir, cache_dir, fake_transport, fake_converter
+    ):
+        run(data_dir, cache_dir, transport=fake_transport,
+            converter=fake_converter, dry_run=True)
+
+        # A dry run touches nothing on disk -- no run history either.
+        assert not (data_dir / "runs.jsonl").exists()
 
 
 def describe_status():

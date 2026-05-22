@@ -17,6 +17,15 @@ def describe_sync_metadata():
         assert "cs.AI" in meta["categories"]
         assert meta["abstract"].startswith("We present a sample paper")
 
+    def it_drops_a_replacement_of_an_old_paper(data_dir, cache_dir, fake_transport):
+        added, _ = sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        # The feed carries a 'replace' item (arXiv:2012.09999, first announced
+        # in 2020). fetcher mirrors only first announcements, so it never
+        # becomes a metadata folder -- the count stays 3, not 4.
+        assert added == 3
+        assert not (data_dir / "2012.09999").exists()
+
     def it_records_the_announcement_date_under_announced_at(
         data_dir, cache_dir, fake_transport
     ):

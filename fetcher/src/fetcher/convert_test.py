@@ -10,6 +10,7 @@ selection, delegation.
 import gzip
 import io
 import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -55,7 +56,7 @@ def describe_latex_to_markdown():
     def it_extracts_the_archive_picks_the_main_tex_and_calls_pandoc(tmp_path):
         calls = []
 
-        def fake_pandoc(path, to, *, format, extra_args=None):
+        def fake_pandoc(path, to, *, format, extra_args=None, cworkdir=None):
             calls.append((path, to, format))
             return "converted markdown body"
 
@@ -72,8 +73,37 @@ def describe_latex_to_markdown():
         assert path.endswith("main.tex")  # the \documentclass file
         assert (to, fmt) == ("gfm", "latex")
 
+    def it_runs_pandoc_from_the_archive_root_so_includes_resolve(tmp_path):
+        # pandoc resolves \input{}/\include{} relative to its process working
+        # directory, not --resource-path. A multi-file paper whose main.tex
+        # does \input{contents/...} loses every include unless pandoc runs
+        # with cwd at the extraction root.
+        seen = {}
+
+        def fake_pandoc(path, to, *, format, extra_args=None, cworkdir=None):
+            seen["cworkdir"] = cworkdir
+            seen["main_under_cwd"] = (
+                cworkdir is not None and Path(path).parent == Path(cworkdir)
+            )
+            seen["include_reachable"] = (
+                cworkdir is not None
+                and (Path(cworkdir) / "contents" / "intro.tex").exists()
+            )
+            return "converted markdown body"
+
+        body = _make_tar({
+            "main.tex": b"\\documentclass{article}\\input{contents/intro}",
+            "contents/intro.tex": b"the actual body text",
+        })
+
+        latex_to_markdown(body, pandoc=fake_pandoc)
+
+        assert seen["cworkdir"] is not None
+        assert seen["main_under_cwd"]
+        assert seen["include_reachable"]
+
     def it_handles_a_single_gzipped_tex(tmp_path):
-        def fake_pandoc(path, to, *, format, extra_args=None):
+        def fake_pandoc(path, to, *, format, extra_args=None, cworkdir=None):
             return "md"
 
         body = gzip.compress(b"\\documentclass{article}\\begin{document}y\\end{document}")

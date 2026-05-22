@@ -36,5 +36,15 @@ Abstract: A third fixture paper with no arxiv HTML but a LaTeX e-print archive, 
       <guid isPermaLink="false">oai:arXiv.org:2401.00003v1</guid>
       <pubDate>Mon, 01 Jan 2024 19:10:00 -0500</pubDate>
     </item>
+    <item>
+      <title>An Old Paper Revised Years Later</title>
+      <link>https://arxiv.org/abs/2012.09999v3</link>
+      <description>arXiv:2012.09999 Announce Type: replace
+Abstract: A revision of a paper first announced in 2020. arxiv RSS carries it as a 'replace' item; fetcher mirrors only first announcements, so this must be dropped.</description>
+      <dc:creator>Margaret Hamilton</dc:creator>
+      <category>cs.LG</category>
+      <guid isPermaLink="false">oai:arXiv.org:2012.09999v3</guid>
+      <pubDate>Mon, 01 Jan 2024 19:15:00 -0500</pubDate>
+    </item>
   </channel>
 </rss>

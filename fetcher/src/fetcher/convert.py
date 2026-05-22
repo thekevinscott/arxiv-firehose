@@ -127,11 +127,14 @@ def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None
         main = _main_tex(work)
         if main is None:
             raise ValueError("e-print archive contains no .tex file")
-        # --resource-path lets pandoc resolve \input{} / \include{} and
-        # \includegraphics relative to the extracted tree.
+        # pandoc resolves \input{} / \include{} relative to its process
+        # working directory, not --resource-path -- so a multi-file paper
+        # needs cworkdir at the extraction root or every include is dropped.
+        # --resource-path additionally covers \includegraphics and resources.
         return pandoc(
             str(main), "gfm", format="latex",
             extra_args=["--resource-path", str(work)],
+            cworkdir=str(work),
         )
 
 

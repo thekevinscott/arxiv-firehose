@@ -62,7 +62,26 @@ def _clean_abstract(summary: str) -> str:
     return text.strip()
 
 
+def _announce_type(summary: str) -> str:
+    """Read arxiv's 'Announce Type:' value from an RSS item description.
+
+    One of new / cross / replace / replace-cross; '' when the header is
+    absent. 'new' is a first announcement; the rest are cross-lists or
+    revisions of existing (often years-old) papers.
+    """
+    marker = "Announce Type:"
+    if marker not in summary:
+        return ""
+    rest = summary.split(marker, 1)[1].strip()
+    return rest.split()[0].lower() if rest else ""
+
+
 def _parse_entry(entry: feedparser.FeedParserDict) -> PaperRecord | None:
+    # fetcher mirrors only papers first announced this week: drop cross-lists
+    # and replacements, which would otherwise pull in old arxiv ids.
+    if _announce_type(entry.get("summary", "")) != "new":
+        return None
+
     raw_id = entry.get("id", "") or entry.get("link", "")
     try:
         arxiv_id = id_from_entry_id(raw_id)

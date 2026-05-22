@@ -11,6 +11,9 @@ pass a fixture-backed fake. See AGENTS.md.
 
 from __future__ import annotations
 
+import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import fetch as fetch_mod
@@ -92,10 +95,15 @@ def run(
 ) -> dict[str, object]:
     """Run the full pipeline: sync-metadata, then fetch.
 
-    Returns ``{"added", "updated", "fetch", "status"}``.
+    Returns ``{"added", "updated", "fetch", "status"}``. Each non-dry run
+    appends a record to ``data_dir/runs.jsonl`` -- a durable history (timing
+    and counts) for investigating what a given run did.
     """
     log = get_logger(data_dir, "run", verbose)
     cfg = load_config(data_dir, config_file)
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    t0 = time.monotonic()
 
     log.info("=== run: sync-metadata ===")
     added, updated = sync_mod.run(
@@ -108,6 +116,18 @@ def run(
         limit=limit, dry_run=dry_run, transport=transport, converter=converter,
     )
     log.info("=== run: done ===")
+
+    if not dry_run:
+        record = {
+            "started_at": started_at,
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "duration_s": round(time.monotonic() - t0, 3),
+            "added": added,
+            "updated": updated,
+            "fetch": counts,
+        }
+        with (data_dir / "runs.jsonl").open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
 
     return {
         "added": added,
