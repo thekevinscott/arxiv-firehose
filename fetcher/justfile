@@ -1,0 +1,29 @@
+# fetcher task runner.
+#
+# `just` itself is run through uv -- the PyPI `just` package is broken, so use
+# rust-just:
+#
+#   uvx --from rust-just just            # list recipes
+#   uvx --from rust-just just test       # run everything
+#
+# A native `just` install works too.
+
+# Show the recipe list.
+default:
+    @just --list
+
+# Colocated unit tests: pure functions, fast, no fixtures.
+test-unit:
+    uv run pytest src
+
+# Integration tests: the SDK's public API with a fixture-backed fake transport.
+test-integration:
+    uv run pytest tests/integration
+
+# The full suite.
+test:
+    uv run pytest
+
+# Run a command through the CLI, e.g. `just cli -- status`.
+cli *args:
+    uv run fetcher {{args}}

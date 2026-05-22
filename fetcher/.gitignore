@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test + tooling caches
+.pytest_cache/
+
+# Local data: the arxiv paper mirror (generated, not source)
+data/

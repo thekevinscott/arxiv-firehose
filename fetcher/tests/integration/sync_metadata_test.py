@@ -1,0 +1,74 @@
+"""Integration tests for the ``sync_metadata`` SDK function."""
+
+import json
+
+from fetcher import sync_metadata
+
+
+def describe_sync_metadata():
+    def it_writes_a_metadata_folder_per_feed_entry(data_dir, cache_dir, fake_transport):
+        added, updated = sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        assert (added, updated) == (3, 0)
+        meta = json.loads((data_dir / "2401.00001" / "metadata.json").read_text())
+        assert meta["title"] == "A Sample Paper on Gradient Methods"
+        assert meta["authors"] == ["Ada Lovelace", "Alan Turing"]
+        assert meta["arxiv_id"] == "2401.00001"
+        assert "cs.AI" in meta["categories"]
+        assert meta["abstract"].startswith("We present a sample paper")
+
+    def it_records_the_announcement_date_under_announced_at(
+        data_dir, cache_dir, fake_transport
+    ):
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        meta = json.loads((data_dir / "2401.00001" / "metadata.json").read_text())
+        # arxiv RSS pubDate is the announcement date, not a submission date;
+        # the field is named for what it actually carries.
+        assert "announced_at" in meta
+        assert "submitted_at" not in meta
+
+    def it_records_the_arxiv_html_url(data_dir, cache_dir, fake_transport):
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        meta = json.loads((data_dir / "2401.00001" / "metadata.json").read_text())
+        # fetch's primary path converts arxiv's native HTML to markdown.
+        assert meta["html_url"] == "https://arxiv.org/html/2401.00001v1"
+
+    def it_fetches_each_tracked_feed_exactly_once(data_dir, cache_dir, fake_transport):
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        assert fake_transport.calls == ["https://rss.arxiv.org/rss/cs.LG"]
+
+    def it_reuses_the_cached_feed_on_a_same_day_rerun(data_dir, cache_dir, fake_transport):
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        after_first = list(fake_transport.calls)
+
+        added, updated = sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        # cachetta caches the feed for a day: no second arxiv request.
+        assert fake_transport.calls == after_first
+        assert (added, updated) == (0, 3)
+
+    def it_writes_a_last_sync_summary(data_dir, cache_dir, fake_transport):
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+
+        summary = json.loads((data_dir / "last_sync.json").read_text())
+        assert summary["papers_added"] == 3
+        assert summary["categories"] == ["cs.LG"]
+
+    def it_makes_no_request_on_a_dry_run(data_dir, cache_dir, fake_transport):
+        added, updated = sync_metadata(
+            data_dir, cache_dir, dry_run=True, transport=fake_transport
+        )
+
+        assert (added, updated) == (0, 0)
+        assert fake_transport.calls == []
+        assert not (data_dir / "2401.00001").exists()
+
+    def it_honors_the_limit(data_dir, cache_dir, fake_transport):
+        added, _ = sync_metadata(
+            data_dir, cache_dir, limit=1, transport=fake_transport
+        )
+
+        assert added == 1
