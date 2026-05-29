@@ -7,6 +7,7 @@ The public SDK lives in ``api.py`` and is re-exported here. The CLI
 from .api import (
     DEFAULT_CACHE_DIR,
     DEFAULT_DATA_DIR,
+    classify,
     fetch,
     run,
     status,
@@ -21,6 +22,7 @@ __all__ = [
     "DEFAULT_DATA_DIR",
     "sync_metadata",
     "fetch",
+    "classify",
     "status",
     "run",
 ]

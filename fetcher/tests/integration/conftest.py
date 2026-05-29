@@ -5,11 +5,13 @@ injected through the SDK's public ``transport=`` parameter -- never by
 monkeypatching a production module (see AGENTS.md).
 """
 
+import json
 from pathlib import Path
 
 import httpx
 import pytest
 
+from fetcher.classify import Classifier
 from fetcher.convert import Converter
 
 FIXTURES = Path(__file__).parent / "__fixtures__"
@@ -125,3 +127,75 @@ def data_dir(tmp_path: Path) -> Path:
 def cache_dir(tmp_path: Path) -> Path:
     # Deliberately separate from the data dir, and created lazily by cachetta.
     return tmp_path / "cache"
+
+
+def _write_prompts_artifact(folder: Path, output_name: str) -> Path:
+    """A minimal CoaxedPrompt artifact: prompt.jinja + meta.json.
+
+    Mirrors what ``coax`` would produce -- one Jinja template and the schema
+    for a single boolean output. Lets integration tests exercise the real
+    ``CoaxedPrompt`` without depending on the compile step.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "prompt.jinja").write_text("Question: {{ abstract }}\n")
+    meta = {
+        "output_name": output_name,
+        "fields": {
+            "inputs": {"abstract": {"type": "str"}},
+            "output": {"type": "bool"},
+        },
+    }
+    (folder / "meta.json").write_text(json.dumps(meta))
+    return folder
+
+
+@pytest.fixture
+def prompts_dirs(tmp_path: Path) -> list[Path]:
+    """Two compiled prompts artifacts the classify tests share.
+
+    ``is_about_ml`` and ``is_about_markdown`` -- chosen so the fake
+    classifier can deterministically light up one but not the other based
+    on the fixture papers' abstracts.
+    """
+    ml = _write_prompts_artifact(tmp_path / "prompts" / "is-about-ml", "is_about_ml")
+    md = _write_prompts_artifact(
+        tmp_path / "prompts" / "is-about-markdown", "is_about_markdown"
+    )
+    return [ml, md]
+
+
+@pytest.fixture
+def data_dir_classify(data_dir: Path, prompts_dirs: list[Path]) -> Path:
+    """A ``data_dir`` whose config.toml points ``[classify]`` at fixture dirs."""
+    paths = ", ".join(f'"{p}"' for p in prompts_dirs)
+    cfg = (data_dir / "config.toml").read_text()
+    cfg += (
+        "\n[classify]\n"
+        f"prompts_dirs = [{paths}]\n"
+        'model = "test-model"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        "timeout_s = 60.0\n"
+    )
+    (data_dir / "config.toml").write_text(cfg)
+    return data_dir
+
+
+@pytest.fixture
+def fake_classifier() -> Classifier:
+    """A Classifier that decides each flag from the prompt's text.
+
+    No LLM -- the fake reads the rendered prompt and lights up the schema's
+    single field. The fixture abstracts contain the word "markdown" for
+    papers 00001-00003 but not 00004, so ``is_about_markdown`` separates
+    the four-paper fixture cleanly. ``is_about_ml`` stays False (the word
+    "ml" is not in any abstract verbatim) so a test can assert both
+    branches of the schema field.
+    """
+    def call(prompt, schema):
+        field = next(iter(schema.model_json_schema()["properties"]))
+        if field == "is_about_markdown":
+            value = "markdown" in prompt.lower()
+        else:
+            value = False
+        return schema(**{field: value})
+    return Classifier(call=call)

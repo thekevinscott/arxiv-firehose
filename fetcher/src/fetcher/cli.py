@@ -62,6 +62,25 @@ def fetch(
     )
 
 
+@app.command("classify")
+def classify(
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+    verbose: bool = Verbose,
+    limit: Optional[int] = Limit,
+    dry_run: bool = DryRun,
+    force: bool = typer.Option(
+        False, "--force",
+        help="Reclassify even if classification.json already exists.",
+    ),
+) -> None:
+    """Classify each paper's abstract into topic flags."""
+    api.classify(
+        data_dir, config,
+        verbose=verbose, limit=limit, dry_run=dry_run, force=force,
+    )
+
+
 @app.command("status")
 def status(data_dir: Path = DataDir) -> None:
     """Print counts: papers known, markdown on disk."""

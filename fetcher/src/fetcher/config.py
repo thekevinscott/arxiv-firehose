@@ -35,6 +35,19 @@ pdf_fallback = true
 [ingest]
 # Skip papers older than this many days on first sync. 0 = take all of RSS.
 backfill_days = 0
+
+[classify]
+# Compiled coaxer prompt artifacts -- one per binary flag. Empty list
+# disables classify cleanly (the daily cron stays green while labels are
+# still being authored).
+prompts_dirs = []
+# OpenAI-compatible /v1/chat/completions endpoint and the model tag it
+# serves. The default points at a local Ollama; swap base_url + model to
+# point at vLLM, llama.cpp, OpenAI, or any other compatible gateway.
+model = "qwen3:8b"
+base_url = "http://localhost:11434/v1"
+api_key = ""
+timeout_s = 60.0
 """
 
 
@@ -53,10 +66,19 @@ class IngestConfig(BaseModel):
     backfill_days: int = 0
 
 
+class ClassifyConfig(BaseModel):
+    prompts_dirs: list[str] = Field(default_factory=list)
+    model: str = "qwen3:8b"
+    base_url: str = "http://localhost:11434/v1"
+    api_key: str = ""
+    timeout_s: float = 60.0
+
+
 class Config(BaseModel):
     categories: CategoriesConfig = Field(default_factory=CategoriesConfig)
     fetch: FetchConfig = Field(default_factory=FetchConfig)
     ingest: IngestConfig = Field(default_factory=IngestConfig)
+    classify: ClassifyConfig = Field(default_factory=ClassifyConfig)
 
     def model_post_init(self, __context: object) -> None:
         if self.fetch.source == "arxiv" and self.fetch.concurrency != 1:

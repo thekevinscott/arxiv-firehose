@@ -22,6 +22,7 @@ def render(data_dir: Path) -> str:
     papers = 0
     have_md = 0
     no_md = 0
+    classified = 0
     cats: set[str] = set()
     md_bytes = 0
     total_bytes = 0
@@ -40,6 +41,8 @@ def render(data_dir: Path) -> str:
             md_bytes += md.stat().st_size
         if (pd / ".no_markdown").exists():
             no_md += 1
+        if (pd / "classification.json").exists():
+            classified += 1
 
         for f in pd.rglob("*"):
             if f.is_file():
@@ -51,6 +54,8 @@ def render(data_dir: Path) -> str:
         f"Markdown on disk:   {have_md:,}  "
         f"({no_md:,} have none available, "
         f"{papers - have_md - no_md:,} not yet fetched)",
+        f"Classified:         {classified:,}  "
+        f"({papers - classified:,} not yet classified)",
     ]
 
     last = data_dir / "last_sync.json"
