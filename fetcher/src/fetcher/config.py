@@ -41,9 +41,12 @@ backfill_days = 0
 # disables classify cleanly (the daily cron stays green while labels are
 # still being authored).
 prompts_dirs = []
-# Local Ollama model tag -- run `ollama list` on the host to confirm.
+# OpenAI-compatible /v1/chat/completions endpoint and the model tag it
+# serves. The default points at a local Ollama; swap base_url + model to
+# point at vLLM, llama.cpp, OpenAI, or any other compatible gateway.
 model = "qwen3:8b"
-host = "http://localhost:11434"
+base_url = "http://localhost:11434/v1"
+api_key = ""
 timeout_s = 60.0
 """
 
@@ -66,7 +69,8 @@ class IngestConfig(BaseModel):
 class ClassifyConfig(BaseModel):
     prompts_dirs: list[str] = Field(default_factory=list)
     model: str = "qwen3:8b"
-    host: str = "http://localhost:11434"
+    base_url: str = "http://localhost:11434/v1"
+    api_key: str = ""
     timeout_s: float = 60.0
 
 

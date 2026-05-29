@@ -17,7 +17,6 @@ dependencies = [
     "pypandoc-binary>=1.13",
     "pymupdf4llm>=1.27.2.3",
     "coaxer>=0.3.13,<0.4",
-    "ollama>=0.4",
 ]
 
 [project.optional-dependencies]
