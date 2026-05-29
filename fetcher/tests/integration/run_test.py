@@ -107,6 +107,44 @@ def describe_run_tracking():
         assert not (data_dir / "runs.jsonl").exists()
 
 
+def describe_run_with_classify():
+    def it_runs_classify_after_fetch_when_prompts_dirs_is_set(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+        fake_classifier,
+    ):
+        result = run(
+            data_dir_classify, cache_dir,
+            transport=fake_transport, converter=fake_converter,
+            classifier=fake_classifier,
+        )
+
+        # The classify block appears alongside fetch -- and writes
+        # classification.json beside paper.md.
+        assert result["classify"]["classified"] == 4
+        assert (data_dir_classify / "2401.00001" / "classification.json").exists()
+
+    def it_omits_classify_from_the_summary_when_disabled(
+        data_dir, cache_dir, fake_transport, fake_converter
+    ):
+        # The default data_dir carries no [classify] prompts_dirs, so run
+        # must not touch classify at all -- the summary stays the old shape.
+        result = run(data_dir, cache_dir, transport=fake_transport,
+                     converter=fake_converter)
+
+        assert "classify" not in result
+
+    def it_records_classify_counts_in_runs_jsonl(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+        fake_classifier,
+    ):
+        run(data_dir_classify, cache_dir,
+            transport=fake_transport, converter=fake_converter,
+            classifier=fake_classifier)
+
+        rec = json.loads((data_dir_classify / "runs.jsonl").read_text().splitlines()[0])
+        assert rec["classify"]["classified"] == 4
+
+
 def describe_status():
     def it_reports_zero_papers_for_an_empty_data_dir(data_dir):
         report = status(data_dir)
@@ -124,3 +162,15 @@ def describe_status():
 
         assert "Papers known:       4" in report
         assert "Markdown on disk:   3" in report
+
+    def it_reports_classified_counts(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+        fake_classifier,
+    ):
+        run(data_dir_classify, cache_dir,
+            transport=fake_transport, converter=fake_converter,
+            classifier=fake_classifier)
+
+        report = status(data_dir_classify)
+
+        assert "Classified:         4" in report

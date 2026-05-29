@@ -1,9 +1,9 @@
 [project]
 name = "fetcher"
 version = "0.1.0"
-description = "Maintain a local mirror of arxiv papers as markdown (plus metadata)."
+description = "Maintain a local mirror of arxiv papers as markdown (plus metadata), with optional auto-classification."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "Kevin Scott", email = "151596+thekevinscott@users.noreply.github.com" }
 ]
@@ -16,6 +16,8 @@ dependencies = [
     "arxiv2markdown~=0.1.0",
     "pypandoc-binary>=1.13",
     "pymupdf4llm>=1.27.2.3",
+    "coaxer>=0.3.13,<0.4",
+    "ollama>=0.4",
 ]
 
 [project.optional-dependencies]
