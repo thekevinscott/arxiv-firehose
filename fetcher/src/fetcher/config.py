@@ -44,7 +44,7 @@ prompts_dirs = []
 # OpenAI-compatible /v1/chat/completions endpoint and the model tag it
 # serves. The default points at a local Ollama; swap base_url + model to
 # point at vLLM, llama.cpp, OpenAI, or any other compatible gateway.
-model = "qwen3:8b"
+model = "phi4:14b"
 base_url = "http://localhost:11434/v1"
 api_key = ""
 timeout_s = 60.0
@@ -68,7 +68,7 @@ class IngestConfig(BaseModel):
 
 class ClassifyConfig(BaseModel):
     prompts_dirs: list[str] = Field(default_factory=list)
-    model: str = "qwen3:8b"
+    model: str = "phi4:14b"
     base_url: str = "http://localhost:11434/v1"
     api_key: str = ""
     timeout_s: float = 60.0
