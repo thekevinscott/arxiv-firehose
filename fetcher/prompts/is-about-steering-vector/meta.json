@@ -1,0 +1,29 @@
+{
+  "compiled_at": "2026-06-04T18:57:41.647404+00:00",
+  "optimizer": "gepa",
+  "example_count": 20,
+  "label_hash": "848a872210c64f2b",
+  "output_name": "is_about_steering_vector",
+  "fields": {
+    "inputs": {
+      "title": {
+        "type": "str",
+        "desc": "Paper title",
+        "values": null,
+        "backing": null
+      },
+      "abstract": {
+        "type": "str",
+        "desc": "Paper abstract",
+        "values": null,
+        "backing": null
+      }
+    },
+    "output": {
+      "type": "bool",
+      "desc": "True iff the paper proposes, studies, or applies activation steering / steering vectors / representation engineering on LLMs (e.g., CAA, ActAdd, RepE, SAE-based steering, refusal-direction work). False for prompt-based control, RLHF/DPO alignment, model editing (ROME/MEMIT), and classifier-free guidance.",
+      "values": null,
+      "backing": null
+    }
+  }
+}

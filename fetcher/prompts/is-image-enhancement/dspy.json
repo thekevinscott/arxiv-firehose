@@ -1,0 +1,23 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [],
+  "signature": {
+    "instructions": "**Task Instructions:**\n\nDetermine whether a given paper proposes or evaluates a method for enhancing image quality by transforming degraded or low-quality images (or videos) into higher-quality versions. This includes techniques such as super-resolution, denoising, deraining, dehazing, inpainting, deblurring, JPEG-artifact removal, face restoration, video frame interpolation, and low-light enhancement.\n\n**Input Format:**\n\n- **title**: The title of the paper.\n- **abstract**: A brief summary or abstract of the paper's content.\n\n**Output Specification:**\n\n- **is_image_enhancement**: Return `True` if the paper involves methods for enhancing image quality as described above. Return `False` if it pertains to other types of image generation, such as text-to-image generation, unconditional image synthesis, aesthetic style transfer, or domain translation that does not focus on quality recovery.\n\n**Detailed Task Description:**\n\n1. **Identify Key Techniques**: Focus on methods explicitly mentioned in the title and abstract that relate to improving image quality from degraded states. These include:\n   - Super-resolution\n   - Denoising\n   - Deraining\n   - Dehazing\n   - Inpainting\n   - Deblurring\n   - JPEG-artifact removal\n   - Face restoration\n   - Video frame interpolation\n   - Low-light enhancement\n\n2. **Exclude Non-Targeted Methods**: Ensure that methods related to:\n   - Pure text-to-image generation\n   - Unconditional image synthesis\n   - Aesthetic style transfer\n   - Domain translation (image-to-image) not aimed at quality recovery are marked as `False`.\n\n3. **Contextual Understanding**: Use the context provided in both the title and abstract to discern whether the primary focus of the paper is on enhancing image quality or if it falls into one of the excluded categories.\n\n4. **Generalizable Strategy**:\n   - Look for keywords related to degradation correction or enhancement.\n   - Assess whether the described methods aim at improving visual fidelity from a degraded state.\n   - Consider the application context (e.g., real-world images, videos) as an indicator of quality enhancement focus.\n\n5. **Feedback Analysis**:\n   - Example 1: Correctly identified image enhancement due to explicit mention of super-resolution and degradation modeling.\n   - Example 2: Incorrectly marked as image enhancement; despite involving frame interpolation, it focuses on motion stability rather than direct quality improvement.\n   - Example 3: Correctly identified as not related to image enhancement; the paper discusses graph neural networks unrelated to image processing.\n\nBy following these guidelines, ensure accurate classification of papers based on their focus on image quality enhancement.",
+    "fields": [
+      {
+        "prefix": "Title:",
+        "description": "Paper title"
+      },
+      {
+        "prefix": "Abstract:",
+        "description": "Paper abstract"
+      },
+      {
+        "prefix": "Is Image Enhancement:",
+        "description": "True iff the paper proposes or evaluates a method that takes a degraded or low-quality image (or video) and produces a higher-quality / cleaner version. Includes super-resolution, denoising, deraining, dehazing, inpainting, deblurring, JPEG-artifact removal, face restoration, video frame interpolation, low-light enhancement. False for pure text-to-image generation, unconditional image synthesis, aesthetic style transfer, and domain-translation i2i that does not target quality recovery."
+      }
+    ]
+  },
+  "lm": null
+}

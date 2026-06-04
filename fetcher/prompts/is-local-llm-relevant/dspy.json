@@ -1,0 +1,23 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [],
+  "signature": {
+    "instructions": "**Task Instructions:**\n\nDetermine whether a research paper is relevant to local deployment of Large Language Models (LLMs) based on specific criteria. The decision should be \"True\" if the paper meets any of the following conditions:\n\n1. **Proposes/Studies Techniques for Local LLM Deployment:**\n   - Requires open weights or inference-stack control.\n   - Involves techniques such as:\n     - Quantization methods (e.g., GPTQ, AWQ).\n     - LoRA/QLoRA fine-tuning.\n     - Speculative decoding internals.\n     - Mechanistic interpretability / SAEs.\n     - Structured-output or constrained decoding.\n     - On-device inference.\n\n2. **Provides Substantive Arguments for Local LLM Deployment:**\n   - Focuses on privacy, data sovereignty, regulation, or federated learning over LLMs.\n\nThe decision should be \"False\" if the paper primarily involves:\n\n- Using a closed LLM via API.\n- Retrieval-Augmented Generation (RAG) over closed APIs.\n- Prompt-only jailbreaks.\n- Closed-vs-open benchmarks.\n- Inference-system work whose benefits mainly accrue to closed providers.\n\n**Input Format:**\n\n- **title**: The title of the paper.\n- **abstract**: A brief summary or abstract of the paper.\n\n**Output:**\n\n- **is_local_llm_relevant**: Boolean value (\"True\" or \"False\") indicating whether the paper is relevant to local LLM deployment based on the criteria above.\n\n**Examples and Feedback Analysis:**\n\n1. **Example 1:**\n   - Title: MedAgentsBench: Benchmarking Thinking Models and Agent Frameworks for Complex Medical Reasoning\n   - Abstract: Discusses a benchmark for medical reasoning tasks.\n   - Output: `is_local_llm_relevant` = False\n   - Feedback Score: 1.0 (Correct)\n\n2. **Example 2:**\n   - Title: EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty\n   - Abstract: Introduces a speculative sampling framework for LLMs.\n   - Output: `is_local_llm_relevant` = False\n   - Feedback Score: 0.0 (Incorrect, should be True due to speculative decoding)\n\n3. **Example 3:**\n   - Title: Emerging Safety Attack and Defense in Federated Instruction Tuning of Large Language Models\n   - Abstract: Discusses safety attacks in federated learning.\n   - Output: `is_local_llm_relevant` = False\n   - Feedback Score: 1.0 (Correct)\n\n**Generalizable Strategy:**\n\n- Focus on identifying keywords or phrases related to the specified techniques and arguments for local deployment.\n- Ensure that papers primarily using closed LLMs via APIs or similar methods are marked as \"False.\"\n- Pay attention to nuanced descriptions of speculative decoding or federated learning, which may indicate relevance.\n\nBy following these instructions, you can accurately determine the relevance of a paper to local LLM deployment based on the provided criteria.\n```",
+    "fields": [
+      {
+        "prefix": "Title:",
+        "description": "Paper title"
+      },
+      {
+        "prefix": "Abstract:",
+        "description": "Paper abstract"
+      },
+      {
+        "prefix": "Is Local Llm Relevant:",
+        "description": "True iff the paper either (a) proposes/studies a technique that requires open weights or inference-stack control to apply (quantization like GPTQ/AWQ, LoRA/QLoRA finetuning, speculative decoding internals, mechanistic interpretability / SAEs, structured-output / constrained decoding, on-device inference) OR (b) provides a substantive argument for running LLMs locally (privacy, data sovereignty, regulation, federated learning over LLMs). False for papers that merely use a closed LLM via API, RAG over closed APIs, prompt-only jailbreaks, closed-vs-open benchmarks, and inference-system work whose benefit accrues mainly to closed providers."
+      }
+    ]
+  },
+  "lm": null
+}

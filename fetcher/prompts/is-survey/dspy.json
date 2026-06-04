@@ -1,0 +1,23 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [],
+  "signature": {
+    "instructions": "True iff the paper is a literature survey or review: it organizes and summarizes prior work in a subfield without proposing a new method or running new empirical evaluations as its main contribution. Typical titles: 'A Survey of...', 'A Review of...', 'A Comprehensive Survey on...'. False for empirical method papers, benchmark-introducing papers, position/perspective papers, and 'Towards understanding...' analyses.\n\nField descriptions: `title`: Paper title; `abstract`: Paper abstract",
+    "fields": [
+      {
+        "prefix": "Title:",
+        "description": "Paper title"
+      },
+      {
+        "prefix": "Abstract:",
+        "description": "Paper abstract"
+      },
+      {
+        "prefix": "Is Survey:",
+        "description": "True iff the paper is a literature survey or review: it organizes and summarizes prior work in a subfield without proposing a new method or running new empirical evaluations as its main contribution. Typical titles: 'A Survey of...', 'A Review of...', 'A Comprehensive Survey on...'. False for empirical method papers, benchmark-introducing papers, position/perspective papers, and 'Towards understanding...' analyses."
+      }
+    ]
+  },
+  "lm": null
+}

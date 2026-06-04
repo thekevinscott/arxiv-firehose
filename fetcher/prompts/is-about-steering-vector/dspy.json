@@ -1,0 +1,23 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [],
+  "signature": {
+    "instructions": "True iff the paper proposes, studies, or applies activation steering / steering vectors / representation engineering on LLMs (e.g., CAA, ActAdd, RepE, SAE-based steering, refusal-direction work). False for prompt-based control, RLHF/DPO alignment, model editing (ROME/MEMIT), and classifier-free guidance.\n\nField descriptions: `title`: Paper title; `abstract`: Paper abstract",
+    "fields": [
+      {
+        "prefix": "Title:",
+        "description": "Paper title"
+      },
+      {
+        "prefix": "Abstract:",
+        "description": "Paper abstract"
+      },
+      {
+        "prefix": "Is About Steering Vector:",
+        "description": "True iff the paper proposes, studies, or applies activation steering / steering vectors / representation engineering on LLMs (e.g., CAA, ActAdd, RepE, SAE-based steering, refusal-direction work). False for prompt-based control, RLHF/DPO alignment, model editing (ROME/MEMIT), and classifier-free guidance."
+      }
+    ]
+  },
+  "lm": null
+}
