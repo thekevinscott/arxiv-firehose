@@ -12,7 +12,7 @@ Fixture papers:
 
 import json
 
-from fetcher import run, status
+from fetcher import classify, run, status
 
 
 def describe_run():
@@ -107,42 +107,29 @@ def describe_run_tracking():
         assert not (data_dir / "runs.jsonl").exists()
 
 
-def describe_run_with_classify():
-    def it_runs_classify_after_fetch_when_prompts_dirs_is_set(
+def describe_run_excludes_classify():
+    # Classify is a separate process (its own CLI command + cron entry);
+    # api.run only does ingest. These tests pin that boundary so a future
+    # change doesn't quietly rewire them together.
+    def it_omits_classify_from_the_summary(
         data_dir_classify, cache_dir, fake_transport, fake_converter,
-        fake_classifier,
     ):
-        result = run(
-            data_dir_classify, cache_dir,
-            transport=fake_transport, converter=fake_converter,
-            classifier=fake_classifier,
-        )
-
-        # The classify block appears alongside fetch -- and writes
-        # classification.json beside paper.md.
-        assert result["classify"]["classified"] == 4
-        assert (data_dir_classify / "2401.00001" / "classification.json").exists()
-
-    def it_omits_classify_from_the_summary_when_disabled(
-        data_dir, cache_dir, fake_transport, fake_converter
-    ):
-        # The default data_dir carries no [classify] prompts_dirs, so run
-        # must not touch classify at all -- the summary stays the old shape.
-        result = run(data_dir, cache_dir, transport=fake_transport,
-                     converter=fake_converter)
+        # data_dir_classify has prompts_dirs set in its config -- run must
+        # still skip classify regardless.
+        result = run(data_dir_classify, cache_dir,
+                     transport=fake_transport, converter=fake_converter)
 
         assert "classify" not in result
+        assert not (data_dir_classify / "2401.00001" / "classification.json").exists()
 
-    def it_records_classify_counts_in_runs_jsonl(
+    def it_omits_classify_from_runs_jsonl(
         data_dir_classify, cache_dir, fake_transport, fake_converter,
-        fake_classifier,
     ):
         run(data_dir_classify, cache_dir,
-            transport=fake_transport, converter=fake_converter,
-            classifier=fake_classifier)
+            transport=fake_transport, converter=fake_converter)
 
         rec = json.loads((data_dir_classify / "runs.jsonl").read_text().splitlines()[0])
-        assert rec["classify"]["classified"] == 4
+        assert "classify" not in rec
 
 
 def describe_status():
@@ -167,9 +154,12 @@ def describe_status():
         data_dir_classify, cache_dir, fake_transport, fake_converter,
         fake_classifier,
     ):
-        run(data_dir_classify, cache_dir,
-            transport=fake_transport, converter=fake_converter,
-            classifier=fake_classifier)
+        # Ingest then classify as two separate calls -- the production
+        # split. ``status`` should still report Classified counts because
+        # it scans for classification.json regardless of how it got there.
+        run(data_dir_classify, cache_dir, transport=fake_transport,
+            converter=fake_converter)
+        classify(data_dir_classify, classifier=fake_classifier)
 
         report = status(data_dir_classify)
 

@@ -119,15 +119,17 @@ def run(
     dry_run: bool = False,
     transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
-    classifier: Classifier | None = None,
 ) -> dict[str, object]:
-    """Run the full pipeline: sync-metadata, fetch, then classify.
+    """Run the ingest pipeline: sync-metadata then fetch.
 
-    Returns ``{"added", "updated", "fetch", "classify", "status"}``. The
-    ``classify`` block is omitted when ``[classify] prompts_dirs`` is empty
-    (feature off). Each non-dry run appends a record to ``data_dir/runs.jsonl``
-    -- a durable history (timing and counts) for investigating what a given
-    run did.
+    Returns ``{"added", "updated", "fetch", "status"}``. Each non-dry run
+    appends a record to ``data_dir/runs.jsonl`` -- a durable history
+    (timing and counts) for investigating what a given run did.
+
+    Classify is a separate process; run it via ``fetcher classify`` (or
+    ``api.classify``) on its own schedule. Keeping ingest and classify
+    decoupled lets the fetch cron stay quick and predictable while
+    classify can be rerun cheaply when prompts change.
     """
     log = get_logger(data_dir, "run", verbose)
     cfg = load_config(data_dir, config_file)
@@ -145,13 +147,6 @@ def run(
         data_dir, cache_dir, cfg, log,
         limit=limit, dry_run=dry_run, transport=transport, converter=converter,
     )
-    classify_counts: dict[str, int] | None = None
-    if cfg.classify.prompts_dirs:
-        log.info("=== run: classify ===")
-        classify_counts = classify_mod.run(
-            data_dir, cfg, log,
-            limit=limit, dry_run=dry_run, classifier=classifier,
-        )
     log.info("=== run: done ===")
 
     if not dry_run:
@@ -163,17 +158,12 @@ def run(
             "updated": updated,
             "fetch": counts,
         }
-        if classify_counts is not None:
-            record["classify"] = classify_counts
         with (data_dir / "runs.jsonl").open("a") as fh:
             fh.write(json.dumps(record) + "\n")
 
-    result: dict[str, object] = {
+    return {
         "added": added,
         "updated": updated,
         "fetch": counts,
         "status": "" if dry_run else status_mod.render(data_dir),
     }
-    if classify_counts is not None:
-        result["classify"] = classify_counts
-    return result
