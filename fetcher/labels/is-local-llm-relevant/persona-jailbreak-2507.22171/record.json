@@ -1,0 +1,12 @@
+{
+  "id": "persona-jailbreak-2507.22171",
+  "inputs": {
+    "title": "Enhancing Jailbreak Attacks on LLMs via Persona Prompts",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2507.22171",
+    "kind": "ambig-neg"
+  }
+}

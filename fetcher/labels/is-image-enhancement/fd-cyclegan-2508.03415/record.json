@@ -1,0 +1,12 @@
+{
+  "id": "fd-cyclegan-2508.03415",
+  "inputs": {
+    "title": "Learning Latent Representations for Image Translation using Frequency Distributed CycleGAN",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2508.03415",
+    "kind": "ambig-neg"
+  }
+}

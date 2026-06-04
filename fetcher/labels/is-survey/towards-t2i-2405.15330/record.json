@@ -1,0 +1,12 @@
+{
+  "id": "towards-t2i-2405.15330",
+  "inputs": {
+    "title": "Towards Understanding the Working Mechanism of Text-to-Image Diffusion Model",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2405.15330",
+    "kind": "ambig-neg"
+  }
+}

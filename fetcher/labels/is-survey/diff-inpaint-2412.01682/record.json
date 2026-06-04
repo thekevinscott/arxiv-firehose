@@ -1,0 +1,12 @@
+{
+  "id": "diff-inpaint-2412.01682",
+  "inputs": {
+    "title": "Diffusion Models with Anisotropic Gaussian Splatting for Image Inpainting",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2412.01682",
+    "kind": "obvious-neg"
+  }
+}

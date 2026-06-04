@@ -1,0 +1,12 @@
+{
+  "id": "inpaint-steer-2401.03349",
+  "inputs": {
+    "title": "Image Inpainting via Tractable Steering of Diffusion Models",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2401.03349",
+    "kind": "pos"
+  }
+}

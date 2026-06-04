@@ -1,0 +1,12 @@
+{
+  "id": "rcg-2312.03701",
+  "inputs": {
+    "title": "Return of Unconditional Generation: A Self-supervised Representation Generation Method",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2312.03701",
+    "kind": "ambig-neg"
+  }
+}

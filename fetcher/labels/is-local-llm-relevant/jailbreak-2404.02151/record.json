@@ -1,0 +1,12 @@
+{
+  "id": "jailbreak-2404.02151",
+  "inputs": {
+    "title": "Jailbreaking Leading Safety-Aligned LLMs with Simple Adaptive Attacks",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2404.02151",
+    "kind": "ambig-neg"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "pix2pix-2404.19265",
+  "inputs": {
+    "title": "Mapping New Realities: Ground Truth Image Creation with Pix2Pix Image-to-Image Translation",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2404.19265",
+    "kind": "ambig-neg"
+  }
+}

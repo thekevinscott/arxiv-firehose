@@ -1,0 +1,12 @@
+{
+  "id": "scale-gnn-2411.19392",
+  "inputs": {
+    "title": "Scale-aware Message Passing For Graph Node Classification",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2411.19392",
+    "kind": "obvious-neg"
+  }
+}

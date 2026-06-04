@@ -1,0 +1,12 @@
+{
+  "id": "hat-2205.04437",
+  "inputs": {
+    "title": "Activating More Pixels in Image Super-Resolution Transformer",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2205.04437",
+    "kind": "pos"
+  }
+}

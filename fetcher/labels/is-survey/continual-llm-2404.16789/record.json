@@ -1,0 +1,12 @@
+{
+  "id": "continual-llm-2404.16789",
+  "inputs": {
+    "title": "Continual Learning of Large Language Models: A Comprehensive Survey",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2404.16789",
+    "kind": "pos"
+  }
+}

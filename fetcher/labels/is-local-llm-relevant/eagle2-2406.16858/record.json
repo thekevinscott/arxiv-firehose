@@ -1,0 +1,12 @@
+{
+  "id": "eagle2-2406.16858",
+  "inputs": {
+    "title": "EAGLE-2: Faster Inference of Language Models with Dynamic Draft Trees",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2406.16858",
+    "kind": "pos"
+  }
+}

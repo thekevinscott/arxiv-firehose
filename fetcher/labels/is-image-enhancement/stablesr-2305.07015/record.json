@@ -1,0 +1,12 @@
+{
+  "id": "stablesr-2305.07015",
+  "inputs": {
+    "title": "Exploiting Diffusion Prior for Real-World Image Super-Resolution",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2305.07015",
+    "kind": "pos"
+  }
+}

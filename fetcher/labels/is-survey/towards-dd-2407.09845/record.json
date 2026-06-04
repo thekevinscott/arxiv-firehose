@@ -1,0 +1,12 @@
+{
+  "id": "towards-dd-2407.09845",
+  "inputs": {
+    "title": "Towards Understanding Epoch-wise Double descent in Two-layer Linear Neural Networks",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2407.09845",
+    "kind": "ambig-neg"
+  }
+}

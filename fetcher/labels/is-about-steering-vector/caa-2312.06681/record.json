@@ -1,0 +1,12 @@
+{
+  "id": "caa-2312.06681",
+  "inputs": {
+    "title": "Steering Llama 2 via Contrastive Activation Addition",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2312.06681",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "eight-things-2304.00612",
+  "inputs": {
+    "title": "Eight Things to Know about Large Language Models",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2304.00612",
+    "kind": "ambig-neg"
+  }
+}

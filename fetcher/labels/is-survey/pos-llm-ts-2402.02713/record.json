@@ -1,0 +1,12 @@
+{
+  "id": "pos-llm-ts-2402.02713",
+  "inputs": {
+    "title": "Position: What Can Large Language Models Tell Us about Time Series Analysis",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2402.02713",
+    "kind": "ambig-neg"
+  }
+}

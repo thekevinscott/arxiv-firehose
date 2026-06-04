@@ -1,0 +1,12 @@
+{
+  "id": "eagle-2401.15077",
+  "inputs": {
+    "title": "EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2401.15077",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "authface-2410.09864",
+  "inputs": {
+    "title": "AuthFace: Towards Authentic Blind Face Restoration with Face-oriented Generative Diffusion Prior",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2410.09864",
+    "kind": "pos"
+  }
+}

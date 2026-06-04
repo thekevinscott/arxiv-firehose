@@ -1,0 +1,12 @@
+{
+  "id": "codeformer-pp-2510.04410",
+  "inputs": {
+    "title": "CodeFormer++: Blind Face Restoration Using Deformable Registration and Deep Metric Learning",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2510.04410",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "dexmanip-2410.21845",
+  "inputs": {
+    "title": "Precise and Dexterous Robotic Manipulation via Human-in-the-Loop Reinforcement Learning",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2410.21845",
+    "kind": "obvious-neg"
+  }
+}

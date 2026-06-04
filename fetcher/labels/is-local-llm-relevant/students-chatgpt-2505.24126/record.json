@@ -1,0 +1,12 @@
+{
+  "id": "students-chatgpt-2505.24126",
+  "inputs": {
+    "title": "How Students (Really) Use ChatGPT: Uncovering Experiences Among Undergraduate Students",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2505.24126",
+    "kind": "obvious-neg"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "medagents-2503.07459",
+  "inputs": {
+    "title": "MedAgentsBench: Benchmarking Thinking Models and Agent Frameworks for Complex Medical Reasoning",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2503.07459",
+    "kind": "ambig-neg"
+  }
+}

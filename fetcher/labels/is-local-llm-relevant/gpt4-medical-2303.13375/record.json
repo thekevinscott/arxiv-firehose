@@ -1,0 +1,12 @@
+{
+  "id": "gpt4-medical-2303.13375",
+  "inputs": {
+    "title": "Capabilities of GPT-4 on Medical Challenge Problems",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2303.13375",
+    "kind": "obvious-neg"
+  }
+}

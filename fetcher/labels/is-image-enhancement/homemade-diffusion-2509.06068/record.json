@@ -1,0 +1,12 @@
+{
+  "id": "homemade-diffusion-2509.06068",
+  "inputs": {
+    "title": "Home-made Diffusion Model from Scratch to Hatch",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2509.06068",
+    "kind": "ambig-neg"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "xgrammar-2411.15100",
+  "inputs": {
+    "title": "XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2411.15100",
+    "kind": "pos"
+  }
+}

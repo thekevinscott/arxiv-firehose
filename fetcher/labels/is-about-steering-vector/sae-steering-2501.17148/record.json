@@ -1,0 +1,12 @@
+{
+  "id": "sae-steering-2501.17148",
+  "inputs": {
+    "title": "AxBench: Steering LLMs? Even Simple Baselines Outperform Sparse Autoencoders",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2501.17148",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "dpo-2305.18290",
+  "inputs": {
+    "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2305.18290",
+    "kind": "obvious-neg"
+  }
+}

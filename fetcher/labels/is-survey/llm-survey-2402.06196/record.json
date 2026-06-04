@@ -1,0 +1,12 @@
+{
+  "id": "llm-survey-2402.06196",
+  "inputs": {
+    "title": "Large Language Models: A Survey",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2402.06196",
+    "kind": "pos"
+  }
+}

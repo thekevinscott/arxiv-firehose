@@ -1,0 +1,12 @@
+{
+  "id": "drl-robotics-2408.03539",
+  "inputs": {
+    "title": "Deep Reinforcement Learning for Robotics: A Survey of Real-World Successes",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2408.03539",
+    "kind": "pos"
+  }
+}

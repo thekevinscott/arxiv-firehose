@@ -1,0 +1,12 @@
+{
+  "id": "actadd-2308.10248",
+  "inputs": {
+    "title": "Steering Language Models With Activation Engineering",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2308.10248",
+    "kind": "pos"
+  }
+}

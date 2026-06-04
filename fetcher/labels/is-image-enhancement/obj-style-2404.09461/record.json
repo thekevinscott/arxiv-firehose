@@ -1,0 +1,12 @@
+{
+  "id": "obj-style-2404.09461",
+  "inputs": {
+    "title": "Improved Object-Based Style Transfer with Single Deep Network",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2404.09461",
+    "kind": "ambig-neg"
+  }
+}

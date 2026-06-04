@@ -1,0 +1,12 @@
+{
+  "id": "wuerstchen-2306.00637",
+  "inputs": {
+    "title": "Wuerstchen: An Efficient Architecture for Large-Scale Text-to-Image Diffusion Models",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2306.00637",
+    "kind": "ambig-neg"
+  }
+}

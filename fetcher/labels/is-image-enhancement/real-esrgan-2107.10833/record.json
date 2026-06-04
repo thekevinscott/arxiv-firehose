@@ -1,0 +1,12 @@
+{
+  "id": "real-esrgan-2107.10833",
+  "inputs": {
+    "title": "Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2107.10833",
+    "kind": "pos"
+  }
+}

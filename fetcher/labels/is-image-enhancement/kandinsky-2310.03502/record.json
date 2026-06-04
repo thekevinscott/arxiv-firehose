@@ -1,0 +1,12 @@
+{
+  "id": "kandinsky-2310.03502",
+  "inputs": {
+    "title": "Kandinsky: an Improved Text-to-Image Synthesis with Image Prior and Latent Diffusion",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2310.03502",
+    "kind": "ambig-neg"
+  }
+}

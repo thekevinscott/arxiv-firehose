@@ -1,0 +1,12 @@
+{
+  "id": "cfg-2207.12598",
+  "inputs": {
+    "title": "Classifier-Free Diffusion Guidance",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2207.12598",
+    "kind": "ambig-neg"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "fa3-2407.08608",
+  "inputs": {
+    "title": "FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2407.08608",
+    "kind": "ambig-neg"
+  }
+}

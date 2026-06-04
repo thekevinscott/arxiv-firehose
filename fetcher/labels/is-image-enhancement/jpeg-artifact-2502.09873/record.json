@@ -1,0 +1,12 @@
+{
+  "id": "jpeg-artifact-2502.09873",
+  "inputs": {
+    "title": "Compression-Aware One-Step Diffusion Model for JPEG Artifact Removal",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2502.09873",
+    "kind": "pos"
+  }
+}

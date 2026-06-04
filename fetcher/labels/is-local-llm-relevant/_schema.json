@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "title": {"type": "str", "desc": "Paper title"},
+    "abstract": {"type": "str", "desc": "Paper abstract"}
+  },
+  "output": {
+    "type": "bool",
+    "desc": "True iff the paper either (a) proposes/studies a technique that requires open weights or inference-stack control to apply (quantization like GPTQ/AWQ, LoRA/QLoRA finetuning, speculative decoding internals, mechanistic interpretability / SAEs, structured-output / constrained decoding, on-device inference) OR (b) provides a substantive argument for running LLMs locally (privacy, data sovereignty, regulation, federated learning over LLMs). False for papers that merely use a closed LLM via API, RAG over closed APIs, prompt-only jailbreaks, closed-vs-open benchmarks, and inference-system work whose benefit accrues mainly to closed providers."
+  }
+}

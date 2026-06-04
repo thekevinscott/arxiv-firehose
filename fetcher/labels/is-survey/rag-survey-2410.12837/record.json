@@ -1,0 +1,12 @@
+{
+  "id": "rag-survey-2410.12837",
+  "inputs": {
+    "title": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG): Evolution, Current Landscape and Future Directions",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2410.12837",
+    "kind": "pos"
+  }
+}

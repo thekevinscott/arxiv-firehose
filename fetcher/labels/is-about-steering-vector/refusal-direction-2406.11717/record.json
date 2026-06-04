@@ -1,0 +1,12 @@
+{
+  "id": "refusal-direction-2406.11717",
+  "inputs": {
+    "title": "Refusal in Language Models Is Mediated by a Single Direction",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2406.11717",
+    "kind": "pos"
+  }
+}

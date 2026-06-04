@@ -1,0 +1,12 @@
+{
+  "id": "judgebench-2410.12784",
+  "inputs": {
+    "title": "JudgeBench: A Benchmark for Evaluating LLM-based Judges",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2410.12784",
+    "kind": "ambig-neg"
+  }
+}

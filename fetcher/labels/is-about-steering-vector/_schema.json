@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "title": {"type": "str", "desc": "Paper title"},
+    "abstract": {"type": "str", "desc": "Paper abstract"}
+  },
+  "output": {
+    "type": "bool",
+    "desc": "True iff the paper proposes, studies, or applies activation steering / steering vectors / representation engineering on LLMs (e.g., CAA, ActAdd, RepE, SAE-based steering, refusal-direction work). False for prompt-based control, RLHF/DPO alignment, model editing (ROME/MEMIT), and classifier-free guidance."
+  }
+}

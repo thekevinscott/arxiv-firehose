@@ -1,0 +1,12 @@
+{
+  "id": "classic-gnn-2406.08993",
+  "inputs": {
+    "title": "Classic GNNs are Strong Baselines: Reassessing GNNs for Node Classification",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2406.08993",
+    "kind": "ambig-neg"
+  }
+}

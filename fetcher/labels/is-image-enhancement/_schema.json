@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "title": {"type": "str", "desc": "Paper title"},
+    "abstract": {"type": "str", "desc": "Paper abstract"}
+  },
+  "output": {
+    "type": "bool",
+    "desc": "True iff the paper proposes or evaluates a method that takes a degraded or low-quality image (or video) and produces a higher-quality / cleaner version. Includes super-resolution, denoising, deraining, dehazing, inpainting, deblurring, JPEG-artifact removal, face restoration, video frame interpolation, low-light enhancement. False for pure text-to-image generation, unconditional image synthesis, aesthetic style transfer, and domain-translation i2i that does not target quality recovery."
+  }
+}

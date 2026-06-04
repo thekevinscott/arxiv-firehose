@@ -1,0 +1,12 @@
+{
+  "id": "llama-scope-2410.20526",
+  "inputs": {
+    "title": "Llama Scope: Extracting Millions of Features from Llama-3.1-8B with Sparse Autoencoders",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2410.20526",
+    "kind": "pos"
+  }
+}

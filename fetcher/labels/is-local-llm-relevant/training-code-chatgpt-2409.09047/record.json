@@ -1,0 +1,12 @@
+{
+  "id": "training-code-chatgpt-2409.09047",
+  "inputs": {
+    "title": "AI Meets the Classroom: When Do Large Language Models Harm Learning?",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2409.09047",
+    "kind": "ambig-neg"
+  }
+}

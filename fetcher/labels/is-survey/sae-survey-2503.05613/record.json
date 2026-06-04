@@ -1,0 +1,12 @@
+{
+  "id": "sae-survey-2503.05613",
+  "inputs": {
+    "title": "A Survey on Sparse Autoencoders: Interpreting the Internal Mechanisms of Large Language Models",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2503.05613",
+    "kind": "pos"
+  }
+}

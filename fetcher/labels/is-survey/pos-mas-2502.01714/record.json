@@ -1,0 +1,12 @@
+{
+  "id": "pos-mas-2502.01714",
+  "inputs": {
+    "title": "Position: Towards a Responsible LLM-empowered Multi-Agent Systems",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2502.01714",
+    "kind": "ambig-neg"
+  }
+}

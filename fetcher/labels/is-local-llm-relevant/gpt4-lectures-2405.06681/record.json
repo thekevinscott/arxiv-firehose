@@ -1,0 +1,12 @@
+{
+  "id": "gpt4-lectures-2405.06681",
+  "inputs": {
+    "title": "Leveraging Lecture Content for Improved Feedback: Explorations with GPT-4 and Retrieval Augmented Generation",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2405.06681",
+    "kind": "ambig-neg"
+  }
+}

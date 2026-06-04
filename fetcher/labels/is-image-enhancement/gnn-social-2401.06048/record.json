@@ -1,0 +1,12 @@
+{
+  "id": "gnn-social-2401.06048",
+  "inputs": {
+    "title": "On the Power of Graph Neural Networks and Feature Augmentation Strategies to Classify Social Networks",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2401.06048",
+    "kind": "obvious-neg"
+  }
+}

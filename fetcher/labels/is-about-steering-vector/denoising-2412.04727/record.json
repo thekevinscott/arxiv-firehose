@@ -1,0 +1,12 @@
+{
+  "id": "denoising-2412.04727",
+  "inputs": {
+    "title": "Learning to Translate Noise for Robust Image Denoising",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2412.04727",
+    "kind": "obvious-neg"
+  }
+}

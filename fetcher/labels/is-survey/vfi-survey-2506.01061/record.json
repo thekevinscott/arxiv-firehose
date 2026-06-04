@@ -1,0 +1,12 @@
+{
+  "id": "vfi-survey-2506.01061",
+  "inputs": {
+    "title": "AceVFI: A Comprehensive Survey of Advances in Video Frame Interpolation",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2506.01061",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "livebench-2406.19314",
+  "inputs": {
+    "title": "LiveBench: A Challenging, Contamination-Limited LLM Benchmark",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2406.19314",
+    "kind": "ambig-neg"
+  }
+}

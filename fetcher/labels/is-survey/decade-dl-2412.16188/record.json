@@ -1,0 +1,12 @@
+{
+  "id": "decade-dl-2412.16188",
+  "inputs": {
+    "title": "A Decade of Deep Learning: A Survey on The Magnificent Seven",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2412.16188",
+    "kind": "pos"
+  }
+}

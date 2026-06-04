@@ -1,0 +1,12 @@
+{
+  "id": "plug-prompts-2404.05143",
+  "inputs": {
+    "title": "Plug and Play with Prompts: A Prompt Tuning Approach for Controlling Text Generation",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2404.05143",
+    "kind": "ambig-neg"
+  }
+}

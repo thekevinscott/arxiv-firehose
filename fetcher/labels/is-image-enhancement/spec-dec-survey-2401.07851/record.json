@@ -1,0 +1,12 @@
+{
+  "id": "spec-dec-survey-2401.07851",
+  "inputs": {
+    "title": "Unlocking Efficiency in Large Language Model Inference: A Comprehensive Survey of Speculative Decoding",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2401.07851",
+    "kind": "obvious-neg"
+  }
+}

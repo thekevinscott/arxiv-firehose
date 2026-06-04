@@ -1,0 +1,12 @@
+{
+  "id": "swinir-2108.10257",
+  "inputs": {
+    "title": "SwinIR: Image Restoration Using Swin Transformer",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2108.10257",
+    "kind": "pos"
+  }
+}

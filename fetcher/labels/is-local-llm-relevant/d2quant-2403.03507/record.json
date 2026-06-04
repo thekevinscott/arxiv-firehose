@@ -1,0 +1,12 @@
+{
+  "id": "d2quant-2403.03507",
+  "inputs": {
+    "title": "GaLore: Memory-Efficient LLM Training by Gradient Low-Rank Projection",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2403.03507",
+    "kind": "pos"
+  }
+}
