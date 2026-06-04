@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-05-26T13:52:25.395267795Z"
+exclude-newer = "2026-06-01T20:49:57.949888273Z"
 exclude-newer-span = "P3D"
 
 [[package]]
@@ -472,6 +472,24 @@ wheels = [
 ]
 
 [[package]]
+name = "dirsql"
+version = "0.3.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/f2/8f9d3f00b3462606c2ba6b3248c95c83f75f8c5fc9338fb49770484ac845/dirsql-0.3.12.tar.gz", hash = "sha256:7f3bd3540d26086f2fbe4e8c0e6c06df24c69dff32a6853fbcd8231d7ae78d55", size = 254607, upload-time = "2026-05-30T15:42:28.839Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/42/41e56221aa520370897ef53cac65e0e3c207acbb4b8753f4482a303000a8/dirsql-0.3.12-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:cfaaa63e58c878fd70015cda27d26211d25178bcad173f76789a7727f596814e", size = 5497781, upload-time = "2026-05-30T15:42:12.353Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/13/f8c7d64feb12bcc401d6075442ab2646d21a70c74a060b0af1df890ad3b3/dirsql-0.3.12-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:e733521d4bec93ac5b3c89f9f48f7c628c58b6a1f6acf7313c29831f888d65b6", size = 5239860, upload-time = "2026-05-30T15:42:13.889Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/be/3acb42d21f4ad94d55890ddd464dcd736ffaf650cbb2bfd7c5b80f50707c/dirsql-0.3.12-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:129f0729e1a4ff4e966f343461cac0c7d9dd5bdceace9ca9764ecf2d2fcfaa49", size = 5929434, upload-time = "2026-05-30T15:42:15.566Z" },
+    { url = "https://files.pythonhosted.org/packages/db/17/ab89f6cc19c929ef3e77033b32c86a2d0bc9061568d3e3a3cd2c8db36de0/dirsql-0.3.12-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:11bb6763122c18bce9706ea8d82d29490a41b38ef518e596d2cb9f0558219eb8", size = 6110070, upload-time = "2026-05-30T15:42:17.36Z" },
+    { url = "https://files.pythonhosted.org/packages/df/99/d1f18644731b807a21f97789321c86506222b9fbc07fe158d6ce56dfe261/dirsql-0.3.12-cp313-cp313-win_amd64.whl", hash = "sha256:a274ad030f16ee0c0086293f89d091771cbd5c1c7e429af092e661ef52ce82d2", size = 5023001, upload-time = "2026-05-30T15:42:19.251Z" },
+    { url = "https://files.pythonhosted.org/packages/20/74/74258c8bb7c5a2881fd33a13c5517549a228acf1a4eb686ecc035c0cc8a4/dirsql-0.3.12-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:3042cd6ac1c60f304edcd7942dbfd84e19238c963a0585f939bb76c1399ba2e8", size = 5498567, upload-time = "2026-05-30T15:42:20.845Z" },
+    { url = "https://files.pythonhosted.org/packages/65/03/9242574e177192cc6ac803cc203bc984c8945927104d56424277299ac600/dirsql-0.3.12-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:4635db54c32bf5dce9b06bd903638b0f1f720dab262527723333be855b4117b5", size = 5241277, upload-time = "2026-05-30T15:42:22.347Z" },
+    { url = "https://files.pythonhosted.org/packages/85/38/f75e4ba81a6cf07fa8041c74ff9d60538b723878c30b9c2a415a9cf332ed/dirsql-0.3.12-cp314-cp314-manylinux_2_34_aarch64.whl", hash = "sha256:d7c4e8732a37a7c6293715b69662c508bc71e4c995eb6a68caf3d238c90bfca6", size = 5928930, upload-time = "2026-05-30T15:42:24.078Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/51/1fb907416fa318117e3fbf452f26defbd150aef270b10e43f6c79ce34bc3/dirsql-0.3.12-cp314-cp314-manylinux_2_34_x86_64.whl", hash = "sha256:de68ebca8bc28ac88caa11505b786f7f0a15dc25f51354ac30c94c2153f88740", size = 6111915, upload-time = "2026-05-30T15:42:25.788Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/7c/5ad8b86d111b0b607b7d25e241cd2c93b478137beecc8148919f053a529f/dirsql-0.3.12-cp314-cp314-win_amd64.whl", hash = "sha256:96a586e6ca8a06b51812bdf512efbbbe500b4b0c917b4ab506e0a037d2577c27", size = 5022902, upload-time = "2026-05-30T15:42:27.391Z" },
+]
+
+[[package]]
 name = "diskcache"
 version = "5.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -568,6 +586,7 @@ dependencies = [
     { name = "arxiv2markdown" },
     { name = "cachetta" },
     { name = "coaxer" },
+    { name = "dirsql" },
     { name = "feedparser" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -596,6 +615,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34" },
     { name = "cachetta", specifier = ">=0.6.3" },
     { name = "coaxer", specifier = ">=0.3.13,<0.4" },
+    { name = "dirsql", specifier = ">=0.3.12" },
     { name = "feedparser", specifier = ">=6.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'", specifier = ">=2.16" },
     { name = "httpx", specifier = ">=0.27" },

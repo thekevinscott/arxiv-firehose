@@ -166,7 +166,14 @@ def prompts_dirs(tmp_path: Path) -> list[Path]:
 
 @pytest.fixture
 def data_dir_classify(data_dir: Path, prompts_dirs: list[Path]) -> Path:
-    """A ``data_dir`` whose config.toml points ``[classify]`` at fixture dirs."""
+    """A ``data_dir`` wired for classify:
+
+    - ``[classify].prompts_dirs`` in config.toml points at the fixture
+      prompts artifacts.
+    - ``categories.json`` at the dirsql ROOT (``data_dir.parent``) lists
+      one category per prompt -- the dirsql ``categories`` table the
+      query joins against to compute missing (paper, cat) pairs.
+    """
     paths = ", ".join(f'"{p}"' for p in prompts_dirs)
     cfg = (data_dir / "config.toml").read_text()
     cfg += (
@@ -177,6 +184,11 @@ def data_dir_classify(data_dir: Path, prompts_dirs: list[Path]) -> Path:
         "timeout_s = 60.0\n"
     )
     (data_dir / "config.toml").write_text(cfg)
+    categories = [
+        {"id": "is_about_ml",       "name": "About ML"},
+        {"id": "is_about_markdown", "name": "About Markdown"},
+    ]
+    (data_dir.parent / "categories.json").write_text(json.dumps(categories))
     return data_dir
 
 

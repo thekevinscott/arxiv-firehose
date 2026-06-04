@@ -17,6 +17,7 @@ dependencies = [
     "pypandoc-binary>=1.13",
     "pymupdf4llm>=1.27.2.3",
     "coaxer>=0.3.13,<0.4",
+    "dirsql>=0.3.12",
 ]
 
 [project.optional-dependencies]
