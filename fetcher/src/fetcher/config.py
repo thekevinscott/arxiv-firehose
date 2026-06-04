@@ -19,8 +19,24 @@ DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
 
 DEFAULT_CONFIG_TOML = """\
 [categories]
-# arxiv subject classifiers to track
-include = ["cs.LG", "cs.CL", "cs.AI"]
+# arxiv subject classifiers to track. RSS feed per category; daily cron
+# fetches each. Tuned for ML + adjacent (security, ethics, audio) + HCI.
+include = [
+    "cs.LG",   # Machine Learning
+    "cs.AI",   # Artificial Intelligence
+    "cs.CL",   # Computation and Language (NLP)
+    "cs.CV",   # Computer Vision
+    "cs.NE",   # Neural and Evolutionary Computing
+    "cs.IR",   # Information Retrieval
+    "cs.RO",   # Robotics
+    "cs.MA",   # Multi-Agent Systems
+    "stat.ML", # Machine Learning (statistics)
+    "cs.HC",   # Human-Computer Interaction
+    "cs.CY",   # Computers and Society (AI ethics, policy)
+    "cs.CR",   # Cryptography and Security (adversarial ML)
+    "eess.AS", # Audio and Speech Processing
+    "cs.SD",   # Sound
+]
 
 [fetch]
 # "arxiv" (HTTPS, rate-limited, free) is the only source in this prototype.
@@ -52,7 +68,12 @@ timeout_s = 60.0
 
 
 class CategoriesConfig(BaseModel):
-    include: list[str] = Field(default_factory=lambda: ["cs.LG", "cs.CL", "cs.AI"])
+    include: list[str] = Field(
+        default_factory=lambda: [
+            "cs.LG", "cs.AI", "cs.CL", "cs.CV", "cs.NE", "cs.IR", "cs.RO",
+            "cs.MA", "stat.ML", "cs.HC", "cs.CY", "cs.CR", "eess.AS", "cs.SD",
+        ]
+    )
 
 
 class FetchConfig(BaseModel):
