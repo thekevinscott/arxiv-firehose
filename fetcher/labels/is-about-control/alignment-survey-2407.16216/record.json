@@ -1,0 +1,12 @@
+{
+  "id": "alignment-survey-2407.16216",
+  "inputs": {
+    "title": "Reinforcement Learning for LLM Post-Training: A Survey",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2407.16216",
+    "kind": "neg-survey"
+  }
+}

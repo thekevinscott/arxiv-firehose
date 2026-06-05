@@ -1,0 +1,12 @@
+{
+  "id": "ctg-2405.01490",
+  "inputs": {
+    "title": "Controllable Text Generation in the Instruction-Tuning Era",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2405.01490",
+    "kind": "pos"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "ntire-sr-2404.09790",
+  "inputs": {
+    "title": "NTIRE 2024 Challenge on Image Super-Resolution ($\\times$4): Methods and Results",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2404.09790",
+    "kind": "obvious-neg"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "vfi-motion-2501.03699",
+  "inputs": {
+    "title": "Motion-Aware Generative Frame Interpolation",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2501.03699",
+    "kind": "obvious-neg"
+  }
+}

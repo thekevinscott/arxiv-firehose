@@ -1,0 +1,12 @@
+{
+  "id": "qlora-2305.14314",
+  "inputs": {
+    "title": "QLoRA: Efficient Finetuning of Quantized LLMs",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2305.14314",
+    "kind": "ambig-neg"
+  }
+}

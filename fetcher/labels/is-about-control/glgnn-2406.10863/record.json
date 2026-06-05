@@ -1,0 +1,12 @@
+{
+  "id": "glgnn-2406.10863",
+  "inputs": {
+    "title": "Global-Local Graph Neural Networks for Node-Classification",
+    "abstract": "abstract.txt"
+  },
+  "output": false,
+  "meta": {
+    "arxiv_id": "2406.10863",
+    "kind": "obvious-neg"
+  }
+}

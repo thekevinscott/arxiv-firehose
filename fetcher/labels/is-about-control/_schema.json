@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "title": {"type": "str", "desc": "Paper title"},
+    "abstract": {"type": "str", "desc": "Paper abstract"}
+  },
+  "output": {
+    "type": "bool",
+    "desc": "True iff the paper proposes, studies, or applies a mechanism for directing or constraining an LLM's behavior at training, fine-tuning, or inference. Includes: activation steering / representation engineering / steering vectors (CAA, ActAdd, RepE, SAE steering, refusal direction), knowledge / weight editing (ROME, MEMIT), structured or constrained generation (grammar / JSON-schema constrained, xgrammar), preference optimization and alignment training (DPO, RLHF, RLAIF), prompt-based control (CFG, prefix tuning, soft prompts, P-tuning), contrastive / guided decoding (DoLa), controllable text generation (CTG), and refusal-direction work. False for: surveys, pure capability scaling, benchmarks, inference speed / serving optimization (speculative decoding, batching), parameter-efficient fine-tuning without a control thesis (plain QLoRA), and unrelated domains (vision, GNNs, robotics)."
+  }
+}

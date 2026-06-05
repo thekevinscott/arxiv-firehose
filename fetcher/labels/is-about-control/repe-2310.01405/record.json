@@ -1,0 +1,12 @@
+{
+  "id": "repe-2310.01405",
+  "inputs": {
+    "title": "Representation Engineering: A Top-Down Approach to AI Transparency",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2310.01405",
+    "kind": "pos"
+  }
+}

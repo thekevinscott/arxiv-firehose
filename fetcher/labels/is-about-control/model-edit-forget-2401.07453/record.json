@@ -1,0 +1,12 @@
+{
+  "id": "model-edit-forget-2401.07453",
+  "inputs": {
+    "title": "Model Editing at Scale leads to Gradual and Catastrophic Forgetting",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2401.07453",
+    "kind": "pos"
+  }
+}

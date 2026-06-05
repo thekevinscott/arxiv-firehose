@@ -1,0 +1,12 @@
+{
+  "id": "prefix-tuning-2101.00190",
+  "inputs": {
+    "title": "Prefix-Tuning: Optimizing Continuous Prompts for Generation",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2101.00190",
+    "kind": "pos"
+  }
+}

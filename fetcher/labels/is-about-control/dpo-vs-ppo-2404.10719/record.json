@@ -1,0 +1,12 @@
+{
+  "id": "dpo-vs-ppo-2404.10719",
+  "inputs": {
+    "title": "Is DPO Superior to PPO for LLM Alignment? A Comprehensive Study",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2404.10719",
+    "kind": "pos"
+  }
+}

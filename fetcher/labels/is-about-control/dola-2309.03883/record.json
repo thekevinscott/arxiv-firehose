@@ -1,0 +1,12 @@
+{
+  "id": "dola-2309.03883",
+  "inputs": {
+    "title": "DoLa: Decoding by Contrasting Layers Improves Factuality in Large Language Models",
+    "abstract": "abstract.txt"
+  },
+  "output": true,
+  "meta": {
+    "arxiv_id": "2309.03883",
+    "kind": "pos"
+  }
+}
