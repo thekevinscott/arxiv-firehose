@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .paths import iter_paper_dirs
+from ..shared.paths import iter_paper_dirs
 
 
 def _read_expected_categories(root: Path) -> set[str]:

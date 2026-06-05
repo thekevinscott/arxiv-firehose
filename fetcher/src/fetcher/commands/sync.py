@@ -17,9 +17,9 @@ from typing import Callable
 import feedparser
 import httpx
 
-from .config import Config
-from .download import Transport, make_feed_fetcher
-from .paths import id_from_entry_id, metadata_path, parse_id, version_from_entry_id
+from ..shared.config import Config
+from ..shared.download import Transport, make_feed_fetcher
+from ..shared.paths import id_from_entry_id, metadata_path, parse_id, version_from_entry_id
 
 
 @dataclass

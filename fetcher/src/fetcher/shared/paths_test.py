@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fetcher.paths import (
+from fetcher.shared.paths import (
     id_from_entry_id,
     iter_paper_dirs,
     markdown_path,

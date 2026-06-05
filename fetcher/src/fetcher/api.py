@@ -16,15 +16,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import classify as classify_mod
-from . import fetch as fetch_mod
-from . import status as status_mod
-from . import sync as sync_mod
-from .classify import Classifier
-from .config import DEFAULT_CACHE_DIR, DEFAULT_DATA_DIR, load_config
-from .convert import REAL_CONVERTER, Converter
-from .download import Transport
-from .logsetup import get_logger
+from .commands import classify as classify_mod
+from .commands import fetch as fetch_mod
+from .commands import status as status_mod
+from .commands import sync as sync_mod
+from .commands.classify import Classifier
+from .shared.config import DEFAULT_CACHE_DIR, DEFAULT_DATA_DIR, load_config
+from .shared.convert import REAL_CONVERTER, Converter
+from .shared.download import Transport
+from .shared.logsetup import get_logger
 
 __all__ = [
     "DEFAULT_CACHE_DIR",

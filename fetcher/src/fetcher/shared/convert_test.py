@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from fetcher.convert import (
+from fetcher.shared.convert import (
     _is_substantial,
     _main_tex,
     _run_with_timeout,

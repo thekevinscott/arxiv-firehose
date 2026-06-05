@@ -23,10 +23,10 @@ from pathlib import Path
 
 import httpx
 
-from .config import Config
-from .convert import REAL_CONVERTER, Converter, _is_substantial
-from .download import Transport, make_downloader, make_html_fetcher
-from .paths import iter_paper_dirs, markdown_path
+from ..shared.config import Config
+from ..shared.convert import REAL_CONVERTER, Converter, _is_substantial
+from ..shared.download import Transport, make_downloader, make_html_fetcher
+from ..shared.paths import iter_paper_dirs, markdown_path
 
 
 def _http_error_summary(exc: Exception) -> str:

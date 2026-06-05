@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from fetcher.download import (
+from fetcher.shared.download import (
     _cache_path,
     _is_retryable,
     _looks_like_feed,

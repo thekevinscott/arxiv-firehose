@@ -116,3 +116,21 @@ Every command is a function in the Python SDK (`fetcher/api.py`, re-exported
 from `fetcher/__init__.py`). The CLI (`fetcher/cli.py`) is a thin
 typer wrapper: it parses flags and calls the SDK. New behavior goes in the SDK
 and gets an integration test there; the CLI only ever grows argument plumbing.
+
+## Package layout
+
+```
+src/fetcher/
+  api.py            # SDK surface (orchestrator)
+  cli.py            # typer wrapper
+  commands/         # one module/subpackage per command (sync, fetch,
+                    # status, classify/)
+  shared/           # cross-command utilities (config, paths, logsetup,
+                    # download, convert, dirsql_schema)
+```
+
+A command is a flat module while it fits in one file (`commands/sync.py`).
+The moment it needs internal modules (a backend, a store, a prompt loader)
+it gets promoted to a subpackage (`commands/classify/run.py` + siblings).
+A module belongs in `shared/` only if it's imported by more than one command
+or by `api.py` -- not a dumping ground.

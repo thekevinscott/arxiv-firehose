@@ -19,8 +19,8 @@ from typing import Any
 
 from coaxer import CoaxedPrompt
 
-from ..config import Config
-from ..dirsql_schema import ALL_PAIRS_SQL, MISSING_PAIRS_SQL, build_app
+from ...shared.config import Config
+from ...shared.dirsql_schema import ALL_PAIRS_SQL, MISSING_PAIRS_SQL, build_app
 from .coaxed import flag_name, load_coaxed, render_inputs
 from .http import http_classifier
 from .store import write_classification

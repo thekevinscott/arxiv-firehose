@@ -216,7 +216,7 @@ def describe_classify_resilience():
     ):
         # An LLM that raises on the first call must mark that pair
         # failed and continue -- never abort the run partway through.
-        from fetcher.classify import Classifier
+        from fetcher.commands.classify import Classifier
 
         calls = {"n": 0}
 

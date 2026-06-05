@@ -11,8 +11,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from fetcher.classify import Classifier
-from fetcher.convert import Converter
+from fetcher.commands.classify import Classifier
+from fetcher.shared.convert import Converter
 
 FIXTURES = Path(__file__).parent / "__fixtures__"
 

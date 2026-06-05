@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fetcher.classify import load_coaxed
+from fetcher.commands.classify import load_coaxed
 
 
 def _write_artifact(folder: Path, body: str = "Classify: {{ abstract }}",

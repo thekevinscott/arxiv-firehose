@@ -6,7 +6,7 @@ tests moved to convert_test.py.
 
 import httpx
 
-from fetcher.fetch import _http_error_summary
+from fetcher.commands.fetch import _http_error_summary
 
 
 def _status_error(code: int) -> httpx.HTTPStatusError:

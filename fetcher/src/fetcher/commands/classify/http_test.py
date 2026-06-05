@@ -10,7 +10,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from fetcher.classify import (
+from fetcher.commands.classify import (
     API_KEY_ENV,
     Classifier,
     ClassifyError,
@@ -179,7 +179,7 @@ def describe_http_classifier_retry():
     def it_retries_on_a_transient_5xx_then_succeeds(monkeypatch):
         # 503 once, then 200. The classifier must retry and return the
         # parsed schema instance, not raise.
-        from fetcher.classify import http as http_module
+        from fetcher.commands.classify import http as http_module
         monkeypatch.setattr(http_module, "_BACKOFF_BASE_S", 0)
         calls = {"n": 0}
 
@@ -204,7 +204,7 @@ def describe_http_classifier_retry():
 
     def it_does_not_retry_on_a_non_retryable_4xx(monkeypatch):
         # 401 is a credentials bug, not a blip; surface immediately.
-        from fetcher.classify import http as http_module
+        from fetcher.commands.classify import http as http_module
         monkeypatch.setattr(http_module, "_BACKOFF_BASE_S", 0)
         calls = {"n": 0}
 
@@ -222,7 +222,7 @@ def describe_http_classifier_retry():
         assert calls["n"] == 1
 
     def it_gives_up_after_three_attempts(monkeypatch):
-        from fetcher.classify import http as http_module
+        from fetcher.commands.classify import http as http_module
         monkeypatch.setattr(http_module, "_BACKOFF_BASE_S", 0)
         calls = {"n": 0}
 

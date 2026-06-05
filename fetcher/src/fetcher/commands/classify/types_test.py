@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from fetcher.classify import Classifier
+from fetcher.commands.classify import Classifier
 
 
 def describe_Classifier():
