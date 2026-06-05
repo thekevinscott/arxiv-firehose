@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from fetcher.shared.llm_cache import cache_key, cache_path, make_llm_cache
+from fetcher.shared.llm import cache_key, cache_path, make_llm_cache
 
 
 def describe_cache_key():

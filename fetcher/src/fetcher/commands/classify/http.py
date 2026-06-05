@@ -20,7 +20,7 @@ Behaviours that are easy to forget if hand-rolled per call:
   exact same ``(model, prompt, schema)`` tuple returns the prior LLM
   response from disk with no network call. The cache is the only
   classify-side caching mechanism in fetcher; nothing else holds LLM
-  output in memory or on disk. See ``shared/llm_cache.py``.
+  output in memory or on disk. See ``shared/llm.py``.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from ...shared.config import DEFAULT_CLASSIFY_BASE_URL
-from ...shared.llm_cache import make_llm_cache
+from ...shared.llm import make_llm_cache
 from .types import Classifier, ClassifyError, HttpBackend
 
 API_KEY_ENV = "FETCHER_LLM_API_KEY"
