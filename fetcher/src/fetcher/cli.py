@@ -4,10 +4,11 @@ A thin typer wrapper over the Python SDK in ``api.py``: each command parses
 flags and delegates. No behavior lives here -- new behavior goes in the SDK.
 
 Two cron-level commands -- ``fetch`` (daily ingest) and ``classify``
-(daily labeling) -- ``status`` for read-only counts, and ``coax`` (a
-developer command) for compiling a labels dir into a prompt artifact.
-The fetch stages (``sync_metadata`` and ``render_markdown``) are SDK-only;
-for granular debugging call them from a REPL.
+(daily labeling) -- ``status`` for read-only counts, and
+``train-categories`` (a developer command) that walks a labels root and
+compiles every category subdir into a prompt artifact. The fetch stages
+(``sync_metadata`` and ``render_markdown``) are SDK-only; for granular
+debugging call them from a REPL.
 """
 
 from __future__ import annotations
@@ -83,21 +84,19 @@ def status(
     typer.echo(api.status(data_dir, config))
 
 
-@app.command("coax")
-def coax(
-    labels_dir: Path = typer.Argument(
-        ..., help="Labels dir to compile (must contain _schema.json + examples).",
+@app.command("train-categories")
+def train_categories(
+    labels_root: Path = typer.Argument(
+        Path("labels"),
+        help="Labels root; each subdir with _schema.json is a category.",
     ),
-    out_dir: Path = typer.Option(
-        ..., "--out", help="Where to write the compiled prompt artifact.",
+    prompts_root: Path = typer.Option(
+        Path("prompts"), "--prompts",
+        help="Where to write the compiled prompt artifacts.",
     ),
     optimizer: Optional[str] = typer.Option(
         None, "--optimizer",
         help="Optimizer: 'gepa' (LLM-tuned) or omitted (raw template).",
-    ),
-    output_name: str = typer.Option(
-        "output", "--output-name",
-        help="Predicted field name in the rendered template (e.g. is_about_control).",
     ),
     model: Optional[str] = typer.Option(
         None, "--model",
@@ -110,18 +109,22 @@ def coax(
     data_dir: Path = DataDir,
     verbose: bool = Verbose,
 ) -> None:
-    """Compile labels into a CoaxedPrompt artifact (content-cached)."""
-    result = api.coax(
-        labels_dir, out_dir, data_dir,
+    """Compile every category under labels/ into a prompt artifact."""
+    results = api.train_categories(
+        labels_root, prompts_root, data_dir,
         optimizer=optimizer,
-        output_name=output_name,
         model=model,
         base_url=base_url,
         verbose=verbose,
     )
-    typer.echo(
-        f"coax: {result['source']} (hash {result['hash']}) -> {result['out']}"
-    )
+    if not results:
+        typer.echo(f"train-categories: no categories under {labels_root}")
+        return
+    for name, info in results.items():
+        typer.echo(
+            f"train-categories: {info['source']:>5} {name} "
+            f"(hash {info['hash']}) -> {info['out']}"
+        )
 
 
 if __name__ == "__main__":

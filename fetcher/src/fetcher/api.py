@@ -20,9 +20,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from .commands import classify as classify_mod
-from .commands import coax as coax_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
+from .commands import train_categories as train_categories_mod
 from .commands.classify import Classifier
 from .shared.config import (
     DEFAULT_CACHE_DIR,
@@ -38,11 +38,11 @@ __all__ = [
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
     "classify",
-    "coax",
     "fetch",
     "render_markdown",
     "status",
     "sync_metadata",
+    "train_categories",
 ]
 
 
@@ -148,35 +148,35 @@ def classify(
     )
 
 
-def coax(
-    labels_dir: Path,
-    out_dir: Path,
+def train_categories(
+    labels_root: Path,
+    prompts_root: Path,
     data_dir: Path = DEFAULT_DATA_DIR,
     *,
     optimizer: str | None = None,
-    output_name: str = "output",
     model: str | None = None,
     base_url: str = DEFAULT_CLASSIFY_BASE_URL,
     verbose: bool = False,
-    cache_root: Path = coax_mod.CACHE_ROOT,
-) -> dict[str, str]:
-    """Compile a labels dir into a CoaxedPrompt artifact at *out_dir*.
+    cache_root: Path = train_categories_mod.CACHE_ROOT,
+) -> dict[str, dict[str, str]]:
+    """Compile every category under *labels_root* into *prompts_root*.
 
-    Content-cached under ``~/.cache/arxiv-firehose/classify/{hash}/`` --
-    unchanged labels skip the compile entirely. With *optimizer* = "gepa"
-    the labels are also used to fit a DSPy prompt against *model* /
-    *base_url* (defaults to the local Ollama).
+    A "category" is any subdir of ``labels_root`` that carries a
+    ``_schema.json``. Its name (``is-about-control``) becomes the output
+    dir (``prompts_root/is-about-control``) and -- with hyphens swapped to
+    underscores -- the runtime flag key (``is_about_control``).
 
-    Returns ``{"hash", "source", "out"}``. *source* is "cache" or "fresh".
+    Each per-category compile is content-cached under
+    ``~/.cache/arxiv-firehose/classify/{hash}/``. With *optimizer* =
+    "gepa" the labels also drive a DSPy fit against *model* / *base_url*.
 
-    *data_dir* is used only for the log file location -- coax doesn't
-    read or write paper data.
+    Returns ``{name: {"hash", "source", "out"}, ...}``. *data_dir* is
+    used only for the log file location.
     """
-    log = get_logger(data_dir, "coax", verbose)
-    return coax_mod.run(
-        labels_dir, out_dir, log,
+    log = get_logger(data_dir, "train-categories", verbose)
+    return train_categories_mod.run(
+        labels_root, prompts_root, log,
         optimizer=optimizer,
-        output_name=output_name,
         model=model,
         base_url=base_url,
         cache_root=cache_root,

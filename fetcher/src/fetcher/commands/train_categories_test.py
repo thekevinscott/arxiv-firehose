@@ -1,9 +1,11 @@
-"""Unit tests for ``coax.hash_labels`` + cache behavior of ``coax.run``.
+"""Unit tests for ``train_categories``: hash, single-compile, iterator.
 
 The hash function is the cache's correctness contract: same content +
 same knobs -> same hash; different content OR different knobs -> different
-hash. ``run`` is exercised against the real ``coaxer.compiler.distill``
-(it's pure: Jinja2 + Pydantic, no network) with optimizer=None.
+hash. ``compile_one`` is exercised against the real
+``coaxer.compiler.distill`` (pure: Jinja2 + Pydantic, no network) with
+optimizer=None. ``run`` is the iterator that walks a labels root and
+calls ``compile_one`` per category subdir.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from fetcher.commands import coax
+from fetcher.commands import train_categories as tc
 
 
 def _make_labels(root: Path) -> Path:
@@ -64,44 +66,52 @@ def out_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def log() -> logging.Logger:
-    return logging.getLogger("coax_test")
+    return logging.getLogger("train_categories_test")
+
+
+def describe_output_name_for():
+    def it_swaps_hyphens_for_underscores():
+        assert tc.output_name_for("is-about-control") == "is_about_control"
+
+    def it_passes_through_a_name_with_no_hyphens():
+        assert tc.output_name_for("survey") == "survey"
 
 
 def describe_hash_labels():
     def it_is_deterministic(labels_dir):
-        a = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
-        b = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        a = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        b = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
         assert a == b
 
     def it_changes_when_a_file_changes(labels_dir):
-        before = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        before = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
         (labels_dir / "yes" / "abstract.txt").write_text("Different content.")
-        after = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        after = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
         assert before != after
 
     def it_changes_when_a_file_is_added(labels_dir):
-        before = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        before = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
         extra = labels_dir / "maybe"
         extra.mkdir()
         (extra / "abstract.txt").write_text("An ambiguous paper.")
         (extra / "record.json").write_text("{}")
-        after = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        after = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
         assert before != after
 
     def it_changes_when_output_name_changes(labels_dir):
-        a = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
-        b = coax.hash_labels(labels_dir, optimizer=None, output_name="is_about_ml")
+        a = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        b = tc.hash_labels(labels_dir, optimizer=None, output_name="is_about_ml")
         assert a != b
 
     def it_changes_when_optimizer_changes(labels_dir):
-        none = coax.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
-        gepa = coax.hash_labels(labels_dir, optimizer="gepa", output_name="is_ml")
+        none = tc.hash_labels(labels_dir, optimizer=None, output_name="is_ml")
+        gepa = tc.hash_labels(labels_dir, optimizer="gepa", output_name="is_ml")
         assert none != gepa
 
 
-def describe_run():
+def describe_compile_one():
     def it_compiles_on_a_cache_miss(labels_dir, cache_root, out_dir, log):
-        result = coax.run(
+        result = tc.compile_one(
             labels_dir, out_dir, log,
             output_name="is_ml", cache_root=cache_root,
         )
@@ -117,7 +127,7 @@ def describe_run():
         labels_dir, cache_root, out_dir, log
     ):
         # First run populates the cache.
-        first = coax.run(
+        first = tc.compile_one(
             labels_dir, out_dir, log,
             output_name="is_ml", cache_root=cache_root,
         )
@@ -128,7 +138,7 @@ def describe_run():
         # NOT re-invoked. Proof: the cache's meta.json compiled_at must
         # be unchanged (a fresh distill would rewrite it with `now`).
         out2 = out_dir.parent / "out2"
-        second = coax.run(
+        second = tc.compile_one(
             labels_dir, out2, log,
             output_name="is_ml", cache_root=cache_root,
         )
@@ -140,14 +150,14 @@ def describe_run():
         assert (out2 / "prompt.jinja").is_file()
 
     def it_recompiles_when_a_label_changes(labels_dir, cache_root, out_dir, log):
-        first = coax.run(
+        first = tc.compile_one(
             labels_dir, out_dir, log,
             output_name="is_ml", cache_root=cache_root,
         )
         # Mutate a label; the cache key flips and a fresh compile runs.
         (labels_dir / "yes" / "abstract.txt").write_text("New content here.")
 
-        second = coax.run(
+        second = tc.compile_one(
             labels_dir, out_dir, log,
             output_name="is_ml", cache_root=cache_root,
         )
@@ -159,7 +169,64 @@ def describe_run():
         # --optimizer gepa requires --model; misconfiguration must error
         # loudly rather than silently fall back.
         with pytest.raises(ValueError, match="--model is required"):
-            coax.run(
+            tc.compile_one(
                 labels_dir, out_dir, log,
                 optimizer="gepa", output_name="is_ml", cache_root=cache_root,
             )
+
+
+def describe_discover_categories():
+    def it_finds_subdirs_with_a_schema(tmp_path):
+        labels = tmp_path / "labels"
+        _make_labels(labels / "is-about-control")
+        _make_labels(labels / "is-survey")
+        # A non-category sibling: no _schema.json. README.md, history.jsonl
+        # and similar live here and must not be treated as categories.
+        (labels / "README.md").write_text("# labels")
+        misc = labels / "notes"
+        misc.mkdir()
+        (misc / "draft.md").write_text("scratch")
+
+        found = tc.discover_categories(labels)
+
+        assert [p.name for p in found] == ["is-about-control", "is-survey"]
+
+    def it_returns_empty_for_a_missing_dir(tmp_path):
+        assert tc.discover_categories(tmp_path / "missing") == []
+
+
+def describe_run():
+    def it_compiles_every_category_under_labels(tmp_path, cache_root, log):
+        labels = tmp_path / "labels"
+        _make_labels(labels / "is-about-control")
+        _make_labels(labels / "is-survey")
+        prompts = tmp_path / "prompts"
+
+        results = tc.run(labels, prompts, log, cache_root=cache_root)
+
+        assert sorted(results) == ["is-about-control", "is-survey"]
+        assert (prompts / "is-about-control" / "prompt.jinja").is_file()
+        assert (prompts / "is-survey" / "prompt.jinja").is_file()
+        # Each category's output_name is derived from its dirname:
+        # is-about-control -> is_about_control.
+        meta = json.loads((prompts / "is-about-control" / "meta.json").read_text())
+        assert meta["output_name"] == "is_about_control"
+
+    def it_serves_a_second_run_from_the_cache(tmp_path, cache_root, log):
+        labels = tmp_path / "labels"
+        _make_labels(labels / "is-survey")
+        prompts = tmp_path / "prompts"
+        tc.run(labels, prompts, log, cache_root=cache_root)
+
+        # Re-run into a fresh prompts root; the cache hit means no
+        # recompile. Source = "cache" proves it.
+        prompts2 = tmp_path / "prompts2"
+        results = tc.run(labels, prompts2, log, cache_root=cache_root)
+
+        assert results["is-survey"]["source"] == "cache"
+
+    def it_returns_empty_when_labels_root_has_no_categories(tmp_path, cache_root, log):
+        empty = tmp_path / "empty-labels"
+        empty.mkdir()
+        results = tc.run(empty, tmp_path / "prompts", log, cache_root=cache_root)
+        assert results == {}

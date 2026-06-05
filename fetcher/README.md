@@ -79,10 +79,10 @@ bandwidth, nothing else.
 ## Commands
 
 ```sh
-fetcher fetch     # daily ingest: sync RSS metadata, then render markdown
-fetcher classify  # daily labeling: abstract -> topic flags via local LLM
-fetcher status    # print counts
-fetcher coax      # developer: compile a labels dir -> prompt artifact
+fetcher fetch              # daily ingest: sync RSS metadata, render markdown
+fetcher classify           # daily labeling: abstract -> topic flags (LLM)
+fetcher status             # print counts
+fetcher train-categories   # developer: compile labels/ -> prompts/
 ```
 
 Flags: `--data-dir`, `--cache-dir`, `--config`, `--verbose/-v`, `--limit N`,
@@ -92,15 +92,19 @@ The fetch stages are also callable from the SDK (`api.sync_metadata`,
 `api.render_markdown`) when granular control is wanted; they are not
 exposed on the CLI.
 
-`coax` is a developer command, not a cron one: it compiles a labels dir
-into a CoaxedPrompt artifact (`prompt.jinja` + `meta.json`), content-
-cached at `~/.cache/arxiv-firehose/classify/{hash}/`. Re-running with
-unchanged labels copies from the cache; with `--optimizer gepa` it
-drives a DSPy round-trip against `--model`/`--base-url`.
+`train-categories` is a developer command, not a cron one: it walks
+`labels/`, treats every subdir with a `_schema.json` as a category, and
+compiles each into `prompts/<category>/`. The output field name is the
+category name with hyphens swapped for underscores
+(`is-about-control` -> `is_about_control`) -- same key the runtime
+classify writes per paper. Each compile is content-cached at
+`~/.cache/arxiv-firehose/classify/{hash}/`; unchanged labels copy from
+cache. With `--optimizer gepa` it drives a DSPy round-trip against
+`--model`/`--base-url`.
 
 ```sh
-fetcher coax labels/is-about-control --out prompts/is-about-control \
-  --output-name is_about_control
+fetcher train-categories                                  # labels/ -> prompts/
+fetcher train-categories --optimizer gepa --model phi4:14b
 ```
 
 ## How fetching works
