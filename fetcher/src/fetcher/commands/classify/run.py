@@ -34,6 +34,7 @@ from .types import Classifier
 
 def run(
     data_dir: Path,
+    cache_dir: Path,
     config: Config,
     log: logging.Logger,
     *,
@@ -53,6 +54,10 @@ def run(
     When ``[classify] prompts_dirs`` is empty (or none of them are
     compiled), ``run`` logs one "disabled" line and returns zeros -- the
     daily cron stays green while the taxonomy is still being authored.
+
+    *cache_dir* is the cachetta location the LLM HTTP client writes to;
+    a repeat ``(model, prompt, schema)`` triple serves from disk with
+    no network call. This is the only caching mechanism in classify.
     """
     counts = {"classified": 0, "cached": 0, "skipped": 0, "failed": 0}
 
@@ -78,6 +83,7 @@ def run(
             base_url=config.classify.base_url,
             api_key=config.classify.api_key or None,
             timeout_s=config.classify.timeout_s,
+            cache_dir=cache_dir,
         )
 
     log.info(

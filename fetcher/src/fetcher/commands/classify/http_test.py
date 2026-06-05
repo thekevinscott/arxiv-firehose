@@ -175,6 +175,108 @@ def describe_http_classifier_credentials():
         assert "authorization" not in captured["headers"]
 
 
+def describe_http_classifier_cache():
+    def it_serves_a_repeat_call_from_the_disk_cache(tmp_path):
+        # With cache_dir set, the same (model, prompt, schema) hits cachetta
+        # on the second call -- the fake backend is never invoked again.
+        # This is the only allowed caching mechanism in classify.
+        fake = _FakeBackend('{"is_about_ml": true}')
+        clf = http_classifier("qwen3:8b", backend=fake, cache_dir=tmp_path)
+
+        a = clf.call("abstract X", _Out)
+        b = clf.call("abstract X", _Out)
+
+        assert isinstance(a, _Out) and isinstance(b, _Out)
+        assert a.is_about_ml is True and b.is_about_ml is True
+        assert len(fake.calls) == 1
+
+    def it_keys_separately_per_prompt(tmp_path):
+        # Different prompt -> different cache file -> backend reinvoked.
+        fake = _FakeBackend('{"is_about_ml": true}')
+        clf = http_classifier("qwen3:8b", backend=fake, cache_dir=tmp_path)
+
+        clf.call("abstract X", _Out)
+        clf.call("abstract Y", _Out)
+
+        assert len(fake.calls) == 2
+
+    def it_keys_separately_per_schema(tmp_path):
+        # Same prompt, different schema -> different cache file. Two
+        # categories with the same abstract still each get an LLM call.
+        from pydantic import BaseModel as _BM
+
+        class Other(_BM):
+            is_about_safety: bool
+
+        # The fake must answer correctly for whichever schema is asked.
+        # Two backends because _FakeBackend returns one canned content.
+        ml_fake = _FakeBackend('{"is_about_ml": true}')
+        clf_ml = http_classifier("qwen3:8b", backend=ml_fake, cache_dir=tmp_path)
+        safety_fake = _FakeBackend('{"is_about_safety": false}')
+        clf_safety = http_classifier("qwen3:8b", backend=safety_fake, cache_dir=tmp_path)
+
+        clf_ml.call("abstract X", _Out)
+        clf_safety.call("abstract X", Other)
+
+        assert len(ml_fake.calls) == 1
+        assert len(safety_fake.calls) == 1
+
+    def it_does_not_cache_a_malformed_response(tmp_path):
+        # A non-JSON content raises ClassifyError before cachetta sees a
+        # return value -- the next call retries the backend.
+        attempts = {"n": 0}
+
+        def flaky(payload, timeout):
+            attempts["n"] += 1
+            content = "not json" if attempts["n"] == 1 else '{"is_about_ml": true}'
+            return {"choices": [{"message": {"content": content}}]}
+
+        clf = http_classifier("qwen3:8b", backend=flaky, cache_dir=tmp_path)
+
+        with pytest.raises(ClassifyError):
+            clf.call("abstract X", _Out)
+        result = clf.call("abstract X", _Out)
+
+        assert result.is_about_ml is True
+        assert attempts["n"] == 2  # the bad response was not cached
+
+    def it_does_not_cache_a_transient_backend_failure(tmp_path):
+        # Same key, exception first, success second -> backend called
+        # twice because exceptions are never cached.
+        attempts = {"n": 0}
+
+        def flaky(payload, timeout):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise httpx.ConnectError("backend down")
+            return {"choices": [{"message": {"content": '{"is_about_ml": true}'}}]}
+
+        clf = http_classifier("qwen3:8b", backend=flaky, cache_dir=tmp_path)
+
+        with pytest.raises(ClassifyError):
+            clf.call("abstract X", _Out)
+        result = clf.call("abstract X", _Out)
+
+        assert result.is_about_ml is True
+        assert attempts["n"] == 2
+
+    def it_persists_cache_across_separate_classifier_instances(tmp_path):
+        # A fresh process (modeled by a new classifier) reading the same
+        # cache_dir reuses what the first wrote -- proving the cache is
+        # on disk, not in process memory.
+        fake_one = _FakeBackend('{"is_about_ml": true}')
+        clf_one = http_classifier("qwen3:8b", backend=fake_one, cache_dir=tmp_path)
+        clf_one.call("abstract X", _Out)
+
+        fake_two = _FakeBackend('{"is_about_ml": true}')
+        clf_two = http_classifier("qwen3:8b", backend=fake_two, cache_dir=tmp_path)
+        result = clf_two.call("abstract X", _Out)
+
+        assert result.is_about_ml is True
+        assert len(fake_one.calls) == 1
+        assert len(fake_two.calls) == 0  # served from disk
+
+
 def describe_http_classifier_retry():
     def it_retries_on_a_transient_5xx_then_succeeds(monkeypatch):
         # 503 once, then 200. The classifier must retry and return the

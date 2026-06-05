@@ -126,6 +126,7 @@ def fetch(
 
 def classify(
     data_dir: Path = DEFAULT_DATA_DIR,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
     config_file: Path | None = None,
     verbose: bool = False,
     limit: int | None = None,
@@ -139,11 +140,17 @@ def classify(
     by default it talks to the local Ollama configured in ``[classify]``.
     With ``[classify] prompts_dirs = []`` the call no-ops cleanly so the
     cron stays green while labels are still being authored.
+
+    *cache_dir* is where the cachetta-backed LLM response cache lives
+    (defaults to ``~/.cache/arxiv-firehose``); a repeat ``(model,
+    prompt, schema)`` triple serves from disk with no network call.
+    The cache is the only mechanism that makes a re-run cheap -- there
+    is no in-memory dict and no file-existence shortcut.
     """
     log = get_logger(data_dir, "classify", verbose)
     cfg = load_config(data_dir, config_file)
     return classify_mod.run(
-        data_dir, cfg, log,
+        data_dir, cache_dir, cfg, log,
         limit=limit, dry_run=dry_run, force=force, classifier=classifier,
     )
 

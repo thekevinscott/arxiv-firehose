@@ -6,7 +6,7 @@ LiteLLM gateways and others all accept the same request and constrain
 output via ``response_format.json_schema``. Switching backend is a config
 edit, not a code edit.
 
-Three behaviours that are easy to forget if hand-rolled per call:
+Behaviours that are easy to forget if hand-rolled per call:
 
 - **Connection pooling.** One ``httpx.Client`` per ``http_classifier``
   call, reused across every ``call(...)``. Saves a TCP+TLS handshake per
@@ -16,18 +16,26 @@ Three behaviours that are easy to forget if hand-rolled per call:
   a real error (a bug, not a blip).
 - **api_key from env.** ``FETCHER_LLM_API_KEY`` overrides an empty config
   value, so credentials stay out of ``data/config.toml``.
+- **Cachetta-backed response cache.** When ``cache_dir`` is set, the
+  exact same ``(model, prompt, schema)`` tuple returns the prior LLM
+  response from disk with no network call. The cache is the only
+  classify-side caching mechanism in fetcher; nothing else holds LLM
+  output in memory or on disk. See ``shared/llm_cache.py``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from pathlib import Path
 from typing import Callable
 
 import httpx
 from pydantic import BaseModel, ValidationError
 
 from ...shared.config import DEFAULT_CLASSIFY_BASE_URL
+from ...shared.llm_cache import make_llm_cache
 from .types import Classifier, ClassifyError, HttpBackend
 
 API_KEY_ENV = "FETCHER_LLM_API_KEY"
@@ -81,6 +89,7 @@ def http_classifier(
     base_url: str = DEFAULT_CLASSIFY_BASE_URL,
     api_key: str | None = None,
     timeout_s: float = 60.0,
+    cache_dir: Path | None = None,
     backend: HttpBackend | None = None,
 ) -> Classifier:
     """Build a Classifier that POSTs OpenAI-compatible chat completions.
@@ -91,6 +100,12 @@ def http_classifier(
     fake HTTP send so they can assert on the exact request payload without
     touching the network. With *backend* unset the call builds a real
     httpx.Client with retries and pooling.
+
+    *cache_dir* enables the cachetta-backed response cache: a repeat
+    ``call(prompt, schema)`` with the same model returns the prior
+    response from disk and never invokes *backend*. This is the only
+    caching mechanism in classify -- there is no in-memory dict, no
+    file-existence skip; cachetta does it transparently.
     """
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"content-type": "application/json"}
@@ -105,17 +120,24 @@ def http_classifier(
         client = httpx.Client(timeout=timeout_s)
         backend = _build_default_backend(url, headers, client)
 
-    def call(prompt: str, schema: type[BaseModel]) -> BaseModel:
+    def send(model_: str, prompt: str, schema_json: str) -> str:
+        """Send the chat-completion request and return the content string.
+
+        Pure inside-cachetta function: takes the three values that key
+        the cache, returns the raw JSON content. Raising here means
+        cachetta does **not** store anything, so a transient backend
+        failure or malformed body never poisons the cache.
+        """
         payload = {
-            "model": model,
+            "model": model_,
             "messages": [{"role": "user", "content": prompt}],
             # OpenAI's json_schema response_format; Ollama and others honor
             # the same shape via the /v1 compatibility layer.
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": schema.__name__,
-                    "schema": schema.model_json_schema(),
+                    "name": "Output",
+                    "schema": json.loads(schema_json),
                     "strict": True,
                 },
             },
@@ -128,6 +150,25 @@ def http_classifier(
             content = resp["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ClassifyError(f"unexpected chat-completions response: {resp!r}") from exc
+        # Pre-validate JSON so cachetta only stores parseable content.
+        # Schema validation happens outside the cache so that a future
+        # schema_json change (which becomes a different cache key) gets
+        # a fresh decode -- but anything *this* key returns is guaranteed
+        # to be JSON. Belt-and-suspenders with the cache condition.
+        try:
+            json.loads(content)
+        except (ValueError, TypeError) as exc:
+            raise ClassifyError(f"invalid JSON in LLM response: {exc}") from exc
+        return content
+
+    if cache_dir is not None:
+        send = make_llm_cache(cache_dir)(send)
+
+    def call(prompt: str, schema: type[BaseModel]) -> BaseModel:
+        # sort_keys keeps the cache key stable across runs even if
+        # Pydantic shuffles dict order between releases.
+        schema_json = json.dumps(schema.model_json_schema(), sort_keys=True)
+        content = send(model, prompt, schema_json)
         try:
             return schema.model_validate_json(content)
         except (ValidationError, ValueError) as exc:
