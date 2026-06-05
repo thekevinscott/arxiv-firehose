@@ -27,6 +27,7 @@ from typing import Callable
 import httpx
 from pydantic import BaseModel, ValidationError
 
+from ...shared.config import DEFAULT_CLASSIFY_BASE_URL
 from .types import Classifier, ClassifyError, HttpBackend
 
 API_KEY_ENV = "FETCHER_LLM_API_KEY"
@@ -77,17 +78,19 @@ def _build_default_backend(
 def http_classifier(
     model: str,
     *,
-    base_url: str = "http://localhost:11434/v1",
+    base_url: str = DEFAULT_CLASSIFY_BASE_URL,
     api_key: str | None = None,
     timeout_s: float = 60.0,
     backend: HttpBackend | None = None,
 ) -> Classifier:
     """Build a Classifier that POSTs OpenAI-compatible chat completions.
 
-    *backend* is the seam unit tests use to inject a fake HTTP send so they
-    can assert on the exact request payload without touching the network.
-    With *backend* unset the call builds a real httpx.Client with retries
-    and pooling.
+    *base_url* defaults to ``DEFAULT_CLASSIFY_BASE_URL`` (a local Ollama);
+    ``ClassifyConfig.base_url`` is the runtime source of truth and shares
+    the same constant. *backend* is the seam unit tests use to inject a
+    fake HTTP send so they can assert on the exact request payload without
+    touching the network. With *backend* unset the call builds a real
+    httpx.Client with retries and pooling.
     """
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"content-type": "application/json"}

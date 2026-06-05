@@ -17,6 +17,13 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 # Cache: cachetta's separate download store.
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
 
+# Default OpenAI-compatible LLM endpoint for classify. Points at a local
+# Ollama; override in config.toml's [classify] block to swap in vLLM,
+# llama.cpp, OpenAI, or any compatible gateway. Lives here as a constant
+# so http_classifier's kwarg default and ClassifyConfig stay in lockstep
+# -- single source of truth for the URL.
+DEFAULT_CLASSIFY_BASE_URL = "http://localhost:11434/v1"
+
 DEFAULT_CONFIG_TOML = """\
 [categories]
 # arxiv subject classifiers to track. RSS feed per category; daily cron
@@ -90,7 +97,7 @@ class IngestConfig(BaseModel):
 class ClassifyConfig(BaseModel):
     prompts_dirs: list[str] = Field(default_factory=list)
     model: str = "phi4:14b"
-    base_url: str = "http://localhost:11434/v1"
+    base_url: str = DEFAULT_CLASSIFY_BASE_URL
     api_key: str = ""
     timeout_s: float = 60.0
 
