@@ -1,4 +1,4 @@
-"""Unit tests for fetch's download-error summarising.
+"""Unit tests for the render stage's download-error summarising.
 
 Tar extraction now lives in convert.py (the LaTeX fallback owns it) -- its
 tests moved to convert_test.py.
@@ -6,7 +6,7 @@ tests moved to convert_test.py.
 
 import httpx
 
-from fetcher.commands.fetch import _http_error_summary
+from fetcher.commands.fetch.render import _http_error_summary
 
 
 def _status_error(code: int) -> httpx.HTTPStatusError:

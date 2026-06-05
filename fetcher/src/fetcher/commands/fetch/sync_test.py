@@ -6,7 +6,7 @@ week, so a non-'new' item -- a cross-list or a revision of an old paper -- must
 be dropped before it becomes a metadata folder.
 """
 
-from fetcher.commands.sync import _announce_type, _parse_entry
+from fetcher.commands.fetch.sync import _announce_type, _parse_entry
 
 
 def describe__announce_type():

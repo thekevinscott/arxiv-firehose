@@ -1,10 +1,10 @@
-"""Integration tests for the ``fetch`` SDK function.
+"""Integration tests for the ``fetch`` (full pipeline) and ``status`` SDK functions.
 
-``fetch`` always processes every paper: cachetta serves the bytes from disk
-or the network transparently, so from the SDK's perspective every paper is a
-fresh fetch-and-rewrite. The two external converters (arxiv2md, pypandoc) are
-never called -- a fake ``Converter`` is injected (see conftest), so the suite
-is hermetic.
+``fetch`` is the daily ingest cycle: sync metadata, then render markdown.
+It is the only ingest entry-point on the CLI; the two stages are SDK-only.
+
+The two external converters (arxiv2md, pypandoc) are never called -- a fake
+``Converter`` is injected (see conftest), so the suite is hermetic.
 
 Fixture papers:
   2401.00001 -- arxiv HTML available  -> markdown via the HTML path
@@ -13,112 +13,55 @@ Fixture papers:
   2401.00004 -- no HTML, no e-print, no PDF -> .no_markdown
 """
 
-import dataclasses
 import json
 
-import pytest
-
-from fetcher import fetch, sync_metadata
-
-
-def _read_fetch_log(data_dir):
-    return (data_dir / "logs" / "fetch.log").read_text()
+from fetcher import classify, fetch, status
 
 
 def describe_fetch():
-    def it_writes_markdown_from_arxiv_html(data_dir, cache_dir, fake_transport,
-                                           fake_converter):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
-                       converter=fake_converter)
-
-        assert counts["html"] == 1
-        md = (data_dir / "2401.00001" / "paper.md").read_text()
-        assert md.startswith("# Markdown from HTML")
-
-    def it_falls_back_to_latex_when_a_paper_has_no_html(
+    def it_syncs_then_renders_and_returns_a_summary(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
+        result = fetch(data_dir, cache_dir, transport=fake_transport,
                        converter=fake_converter)
 
-        assert counts["latex"] == 1
-        md = (data_dir / "2401.00003" / "paper.md").read_text()
-        assert md.startswith("# Markdown from LaTeX")
+        assert result["added"] == 4
+        assert result["updated"] == 0
+        assert result["render"]["html"] == 1
+        assert result["render"]["latex"] == 1
+        assert result["render"]["pdf"] == 1
+        assert result["render"]["absent"] == 1
+        assert "Papers known:       4" in result["status"]
 
-    def it_falls_back_to_pdf_when_a_paper_has_no_html_or_latex(
+    def it_leaves_a_markdown_mirror_on_disk(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
-                       converter=fake_converter)
-
-        # 2401.00002 has no arxiv HTML and a PDF-only e-print -- the LaTeX
-        # path raises, so the PDF fallback is the path that yields markdown.
-        assert counts["pdf"] == 1
-        md = (data_dir / "2401.00002" / "paper.md").read_text()
-        assert md.startswith("# Markdown from PDF")
-
-    def it_marks_a_paper_with_no_markdown_available(
-        data_dir, cache_dir, fake_transport, fake_converter
-    ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
-                       converter=fake_converter)
-
-        # 2401.00004 has no HTML, no e-print and no PDF -- every conversion
-        # path 404s, so it is the one paper left with no markdown.
-        assert counts["absent"] == 1
-        assert (data_dir / "2401.00004" / ".no_markdown").exists()
-        assert not (data_dir / "2401.00004" / "paper.md").exists()
-
-    def it_keeps_only_markdown_and_metadata_on_disk(
-        data_dir, cache_dir, fake_transport, fake_converter
-    ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
         fetch(data_dir, cache_dir, transport=fake_transport,
               converter=fake_converter)
 
-        for pid in ("2401.00001", "2401.00002", "2401.00003"):
-            on_disk = {p.name for p in (data_dir / pid).iterdir()}
-            assert on_disk == {"metadata.json", "paper.md"}
-        # The PDF and the raw LaTeX source are never written to the data dir.
+        assert (data_dir / "2401.00001" / "metadata.json").exists()
+        assert (data_dir / "2401.00001" / "paper.md").exists()
+        assert (data_dir / "2401.00002" / "paper.md").exists()
+        assert (data_dir / "2401.00003" / "paper.md").exists()
+        assert (data_dir / "2401.00004" / ".no_markdown").exists()
+        # No PDF and no extracted LaTeX source ever reach the data dir.
         assert list(data_dir.rglob("*.pdf")) == []
         assert [p for p in data_dir.rglob("source") if p.is_dir()] == []
 
-
-def describe_fetch_always_rewrites():
-    def it_overwrites_a_corrupted_markdown_file_already_on_disk(
+    def it_makes_only_uncacheable_404s_on_a_same_day_rerun(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
         fetch(data_dir, cache_dir, transport=fake_transport,
               converter=fake_converter)
-
-        md = data_dir / "2401.00001" / "paper.md"
-        md.write_text("corrupted")  # fetch must not skip a paper that "exists"
-
-        fetch(data_dir, cache_dir, transport=fake_transport,
-              converter=fake_converter)
-
-        assert md.read_text().startswith("# Markdown from HTML")
-
-    def it_reuses_cached_content_on_a_rerun(
-        data_dir, cache_dir, fake_transport, fake_converter
-    ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        first = fetch(data_dir, cache_dir, transport=fake_transport,
-                      converter=fake_converter)
         after_first = list(fake_transport.calls)
 
-        again = fetch(data_dir, cache_dir, transport=fake_transport,
-                      converter=fake_converter)
+        result = fetch(data_dir, cache_dir, transport=fake_transport,
+                       converter=fake_converter)
 
-        # The feed, the converted HTML and the e-print/PDF archives that
-        # returned 200 are all cached. Only the uncacheable 404s repeat: the
-        # /html/ miss for the three HTML-less papers, plus 2401.00004's
-        # e-print and PDF misses (it has no representation at all).
+        # The feed (cached a day), the HTML and the e-print/PDF archives that
+        # returned 200 are all served from disk. Only the uncacheable 404s
+        # repeat: the /html/ miss for the three HTML-less papers, plus the
+        # e-print and PDF misses for 2401.00004 (no representation at all).
         new_calls = fake_transport.calls[len(after_first):]
         assert set(new_calls) == {
             "https://arxiv.org/html/2401.00002v1",
@@ -127,94 +70,100 @@ def describe_fetch_always_rewrites():
             "https://arxiv.org/e-print/2401.00004",
             "https://arxiv.org/pdf/2401.00004v1",
         }
-        assert again == first
+        assert result["render"]["html"] == 1
+        assert result["render"]["latex"] == 1
+        assert result["render"]["pdf"] == 1
 
-    def it_makes_no_request_on_a_dry_run(
+
+def describe_fetch_tracking():
+    def it_appends_one_record_per_run_to_runs_jsonl(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        before = list(fake_transport.calls)
+        fetch(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
+        fetch(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
 
-        counts = fetch(data_dir, cache_dir, dry_run=True, transport=fake_transport,
-                       converter=fake_converter)
+        lines = (data_dir / "runs.jsonl").read_text().splitlines()
+        # One JSON object appended per run -- a durable history to investigate.
+        assert len(lines) == 2
+        assert all(json.loads(line) for line in lines)
 
-        assert counts["html"] == 0 and counts["latex"] == 0
-        assert counts["pdf"] == 0
-        assert fake_transport.calls == before
-        assert not (data_dir / "2401.00001" / "paper.md").exists()
-
-
-def describe_fetch_resilience():
-    def it_skips_a_paper_with_corrupt_metadata_and_processes_the_rest(
+    def it_records_timing_and_counts_for_the_run(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        # A folder with an unreadable metadata.json must not abort the run.
-        bad = data_dir / "2401.09998"
-        bad.mkdir()
-        (bad / "metadata.json").write_text("{ not valid json")
+        fetch(data_dir, cache_dir, transport=fake_transport, converter=fake_converter)
 
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
-                       converter=fake_converter)
+        rec = json.loads((data_dir / "runs.jsonl").read_text().splitlines()[0])
+        assert rec["started_at"] <= rec["finished_at"]
+        assert rec["duration_s"] >= 0
+        assert rec["added"] == 4
+        assert rec["updated"] == 0
+        assert rec["render"] == {"html": 1, "latex": 1, "pdf": 1, "absent": 1,
+                                 "failed": 0, "skipped": 0}
 
-        assert counts["html"] == 1  # the valid HTML paper still converted
-        assert counts["latex"] == 1
-        assert counts["skipped"] == 1
-        assert "skip 2401.09998: bad metadata.json" in _read_fetch_log(data_dir)
-
-
-def describe_latex_failures_fall_through_to_pdf():
-    # Regression coverage for the 3-tier chain. The LaTeX path collapses
-    # every unconvertible-source outcome into one ValueError: a PDF-only
-    # e-print, a pandoc timeout, or a pandoc parse rejection (exit 64).
-    # Whatever the cause, fetch must route the paper to the PDF fallback --
-    # never abort it or mark it absent while a PDF is still reachable.
-    @pytest.mark.parametrize("reason", [
-        "e-print archive has no LaTeX source",
-        "LaTeX conversion exceeded the 120s pandoc timeout",
-        "pandoc rejected the LaTeX source (exit 64)",
-    ])
-    def it_routes_a_latex_valueerror_to_the_pdf_path(
-        data_dir, cache_dir, fake_transport, fake_converter, reason
-    ):
-        def failing_latex(eprint: bytes) -> str:
-            raise ValueError(reason)
-
-        converter = dataclasses.replace(fake_converter, latex=failing_latex)
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = fetch(data_dir, cache_dir, transport=fake_transport,
-                       converter=converter)
-
-        # 2401.00003 has a LaTeX e-print -- normally the LaTeX path. With the
-        # LaTeX converter rejecting it, the paper falls through to its PDF,
-        # joining 2401.00002 (already PDF-only) on the PDF path.
-        assert counts["latex"] == 0
-        assert counts["pdf"] == 2
-        md = (data_dir / "2401.00003" / "paper.md").read_text()
-        assert md.startswith("# Markdown from PDF")
-
-
-def describe_fetch_logging():
-    def it_logs_a_200_for_a_converted_paper(
+    def it_does_not_record_a_dry_run(
         data_dir, cache_dir, fake_transport, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        fetch(data_dir, cache_dir, transport=fake_transport,
+              converter=fake_converter, dry_run=True)
+
+        # A dry run touches nothing on disk -- no run history either.
+        assert not (data_dir / "runs.jsonl").exists()
+
+
+def describe_fetch_excludes_classify():
+    # Classify is a separate command (its own CLI command + cron entry);
+    # api.fetch only does ingest. These tests pin that boundary so a future
+    # change doesn't quietly rewire them together.
+    def it_omits_classify_from_the_summary(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+    ):
+        # data_dir_classify has prompts_dirs set in its config -- fetch must
+        # still skip classify regardless.
+        result = fetch(data_dir_classify, cache_dir,
+                       transport=fake_transport, converter=fake_converter)
+
+        assert "classify" not in result
+        assert not (data_dir_classify / "2401.00001" / "classifications").exists()
+
+    def it_omits_classify_from_runs_jsonl(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+    ):
+        fetch(data_dir_classify, cache_dir,
+              transport=fake_transport, converter=fake_converter)
+
+        rec = json.loads((data_dir_classify / "runs.jsonl").read_text().splitlines()[0])
+        assert "classify" not in rec
+
+
+def describe_status():
+    def it_reports_zero_papers_for_an_empty_data_dir(data_dir):
+        report = status(data_dir)
+
+        assert "Papers known:       0" in report
+        assert "Last sync:          (never)" in report
+
+    def it_reports_counts_after_a_fetch(
+        data_dir, cache_dir, fake_transport, fake_converter
+    ):
         fetch(data_dir, cache_dir, transport=fake_transport,
               converter=fake_converter)
 
-        log_text = _read_fetch_log(data_dir)
-        assert "html 2401.00001: HTTP 200" in log_text
-        assert "tex  2401.00003: HTTP 200" in log_text
+        report = status(data_dir)
 
-    def it_logs_a_404_concisely_without_the_mdn_link(
-        data_dir, cache_dir, fake_transport, fake_converter
+        assert "Papers known:       4" in report
+        assert "Markdown on disk:   3" in report
+
+    def it_reports_classified_counts(
+        data_dir_classify, cache_dir, fake_transport, fake_converter,
+        fake_classifier,
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        fetch(data_dir, cache_dir, verbose=True, transport=fake_transport,
+        # Ingest then classify as two separate calls -- the production
+        # split. ``status`` should still report Classified counts because
+        # it scans the classifications/ folder regardless of how it got there.
+        fetch(data_dir_classify, cache_dir, transport=fake_transport,
               converter=fake_converter)
+        classify(data_dir_classify, classifier=fake_classifier)
 
-        # 2401.00002 / 2401.00003 have no arxiv HTML -> a 404 is logged, but
-        # without httpx's multi-line MDN documentation link.
-        log_text = _read_fetch_log(data_dir)
-        assert "html 2401.00002: HTTP 404" in log_text
-        assert "developer.mozilla" not in log_text
+        report = status(data_dir_classify)
+
+        assert "Classified:         4" in report

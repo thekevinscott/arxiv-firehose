@@ -123,14 +123,26 @@ and gets an integration test there; the CLI only ever grows argument plumbing.
 src/fetcher/
   api.py            # SDK surface (orchestrator)
   cli.py            # typer wrapper
-  commands/         # one module/subpackage per command (sync, fetch,
-                    # status, classify/)
+  commands/         # one subpackage / module per CLI command
+    fetch/          # daily ingest: sync metadata + render markdown
+      __init__.py   #   the composite (sync → render) lives here
+      sync.py       #   stage 1: arxiv RSS -> metadata.json per paper
+      render.py     #   stage 2: HTML/LaTeX/PDF -> paper.md per paper
+    classify/       # daily classify: abstract -> topic flags via LLM
+    status.py       # read-only counts (single-file command)
   shared/           # cross-command utilities (config, paths, logsetup,
                     # download, convert, dirsql_schema)
 ```
 
-A command is a flat module while it fits in one file (`commands/sync.py`).
-The moment it needs internal modules (a backend, a store, a prompt loader)
-it gets promoted to a subpackage (`commands/classify/run.py` + siblings).
-A module belongs in `shared/` only if it's imported by more than one command
-or by `api.py` -- not a dumping ground.
+CLI surface mirrors the commands/ folder: `fetcher fetch`, `fetcher
+classify`, `fetcher status`. The fetch stages (sync, render) are SDK-only
+(`api.sync_metadata`, `api.render_markdown`); they live as separate
+modules inside `commands/fetch/` so each has its own integration test
+file and can be called granularly.
+
+A command is a flat module while it fits in one file (`commands/status.py`).
+The moment it needs internal modules (multiple stages, a backend, a store,
+a prompt loader) it gets promoted to a subpackage (`commands/fetch/run.py`
++ siblings, `commands/classify/run.py` + siblings). A module belongs in
+`shared/` only if it's imported by more than one command or by `api.py`
+-- not a dumping ground.

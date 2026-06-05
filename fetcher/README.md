@@ -79,37 +79,44 @@ bandwidth, nothing else.
 ## Commands
 
 ```sh
-fetcher sync-metadata   # fetch RSS metadata, write a folder per paper
-fetcher fetch           # download PDF + LaTeX for papers missing them
-fetcher status          # print counts
-fetcher run             # sync-metadata then fetch, then status
+fetcher fetch     # daily ingest: sync RSS metadata, then render markdown
+fetcher classify  # daily labeling: abstract -> topic flags via local LLM
+fetcher status    # print counts
 ```
 
 Flags: `--data-dir`, `--cache-dir`, `--config`, `--verbose/-v`, `--limit N`,
 `--dry-run`.
 
+The fetch stages are also callable from the SDK (`api.sync_metadata`,
+`api.render_markdown`) when granular control is wanted; they are not
+exposed on the CLI.
+
 ## How fetching works
 
-1. **sync-metadata** writes a `metadata.json` for every paper in the RSS feed
-   of each tracked category (RSS carries ~1 week of submissions).
-2. **fetch** walks every paper folder and downloads the PDF and LaTeX source
+`fetch` runs two stages in order:
+
+1. **sync** writes a `metadata.json` for every paper in the RSS feed of each
+   tracked category (RSS carries ~1 week of submissions).
+2. **render** walks every paper folder and produces a markdown rendering
    for *each* one, every run — there is no "already on disk, skip" shortcut.
-   It re-fetches and rewrites the data-dir files unconditionally.
+   It re-fetches and rewrites the data-dir files unconditionally. Three
+   conversion paths are tried in order: arxiv native HTML → LaTeX e-print
+   → PDF.
 3. Every download goes through the cachetta-backed downloader, which serves
    the bytes from the on-disk cache or the network **transparently**. arxiv
    content is immutable for a fixed paper version, so cache entries never
-   expire. From `fetch`'s perspective every paper is a fresh fetch; the cache
-   only decides whether a request touches the network. A file deleted or
-   corrupted in the data dir is rewritten from the cache with **no network
-   call and no rate-limit delay**.
+   expire. From `fetch`'s perspective every paper is a fresh fetch; the
+   cache only decides whether a request touches the network. A file deleted
+   or corrupted in the data dir is rewritten from the cache with **no
+   network call and no rate-limit delay**.
 
-Both steps are idempotent and resumable: a re-run rewrites the same bytes,
+Both stages are idempotent and resumable: a re-run rewrites the same bytes,
 and after a crash the next run simply fetches everything again — cheaply,
 since the cache absorbs it.
 
 ```sh
-fetcher run
-fetcher run --data-dir /tmp/mirror --cache-dir /tmp/cache --limit 5
+fetcher fetch
+fetcher fetch --data-dir /tmp/mirror --cache-dir /tmp/cache --limit 5
 ```
 
 ## Configuration
@@ -136,7 +143,7 @@ per day keeps the mirror complete; the RSS window is ~1 week so a missed day is
 recovered automatically.
 
 ```cron
-0 3 * * *  cd ~/work && fetcher run >> ~/.cache/arxiv-firehose/cron.log 2>&1
+0 3 * * *  cd ~/work && fetcher fetch >> ~/.cache/arxiv-firehose/cron.log 2>&1
 ```
 
 Hourly polling is safe — it is idempotent and a no-op when nothing is new — but

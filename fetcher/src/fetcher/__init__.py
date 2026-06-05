@@ -9,7 +9,7 @@ from .api import (
     DEFAULT_DATA_DIR,
     classify,
     fetch,
-    run,
+    render_markdown,
     status,
     sync_metadata,
 )
@@ -20,9 +20,9 @@ __all__ = [
     "__version__",
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
-    "sync_metadata",
-    "fetch",
     "classify",
+    "fetch",
+    "render_markdown",
     "status",
-    "run",
+    "sync_metadata",
 ]

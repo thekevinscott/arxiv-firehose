@@ -1,6 +1,7 @@
-"""fetch: produce a markdown rendering of every known paper.
+"""render: produce a markdown rendering of every known paper.
 
-Every paper is fetched on every run -- there is no "already on disk, skip"
+The markdown-render stage of ``fetch`` (the composite command). Every paper
+is rendered on every run -- there is no "already on disk, skip"
 shortcut. Network reads go through the cachetta-backed downloaders (see
 download.py), which serve bytes from the on-disk cache or the network
 transparently. Three conversion paths yield the markdown, tried in order:
@@ -23,10 +24,10 @@ from pathlib import Path
 
 import httpx
 
-from ..shared.config import Config
-from ..shared.convert import REAL_CONVERTER, Converter, _is_substantial
-from ..shared.download import Transport, make_downloader, make_html_fetcher
-from ..shared.paths import iter_paper_dirs, markdown_path
+from ...shared.config import Config
+from ...shared.convert import REAL_CONVERTER, Converter, _is_substantial
+from ...shared.download import Transport, make_downloader, make_html_fetcher
+from ...shared.paths import iter_paper_dirs, markdown_path
 
 
 def _http_error_summary(exc: Exception) -> str:
@@ -148,7 +149,7 @@ def run(
               "skipped": 0}
     processed = 0
 
-    log.info("fetch start: %d papers known, cache=%s, latex_fallback=%s",
+    log.info("render start: %d papers known, cache=%s, latex_fallback=%s",
              len(paper_dirs), cache_dir, config.fetch.latex_fallback)
     fetch_html = make_html_fetcher(cache_dir, transport)
     download = make_downloader(cache_dir, transport)
@@ -203,5 +204,5 @@ def run(
             counts["failed"] += 1
             log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
 
-    log.info("fetch done: %s", counts)
+    log.info("render done: %s", counts)
     return counts

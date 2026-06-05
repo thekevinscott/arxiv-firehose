@@ -4,6 +4,12 @@ Every command is a function here. The CLI (``cli.py``) is a thin typer
 wrapper over these. Each function handles config loading and logger setup
 itself, so a caller only supplies the data/cache directories and options.
 
+Two cron-level commands -- ``fetch`` (ingest: sync metadata, then render
+markdown) and ``classify`` (label each paper against a taxonomy) -- plus
+``status`` for read-only counts. The fetch stages (``sync_metadata`` and
+``render_markdown``) are also exported here for granular use and tests;
+they are not exposed on the CLI.
+
 Network I/O flows through an injectable *transport* (``(url, timeout) ->
 bytes``). The default is the real rate-limited httpx GET; integration tests
 pass a fixture-backed fake. See AGENTS.md.
@@ -11,15 +17,11 @@ pass a fixture-backed fake. See AGENTS.md.
 
 from __future__ import annotations
 
-import json
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .commands import classify as classify_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
-from .commands import sync as sync_mod
 from .commands.classify import Classifier
 from .shared.config import DEFAULT_CACHE_DIR, DEFAULT_DATA_DIR, load_config
 from .shared.convert import REAL_CONVERTER, Converter
@@ -29,11 +31,11 @@ from .shared.logsetup import get_logger
 __all__ = [
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
-    "sync_metadata",
-    "fetch",
     "classify",
+    "fetch",
+    "render_markdown",
     "status",
-    "run",
+    "sync_metadata",
 ]
 
 
@@ -48,13 +50,39 @@ def sync_metadata(
 ) -> tuple[int, int]:
     """Fetch RSS metadata for tracked categories; write a folder per paper.
 
-    Returns ``(added, updated)`` folder counts.
+    Returns ``(added, updated)`` folder counts. A stage of ``fetch`` --
+    callable on its own for tests or granular use, not exposed on the CLI.
     """
     log = get_logger(data_dir, "sync-metadata", verbose)
     cfg = load_config(data_dir, config_file)
-    return sync_mod.run(
+    return fetch_mod.sync.run(
         data_dir, cache_dir, cfg, log,
         limit=limit, dry_run=dry_run, transport=transport,
+    )
+
+
+def render_markdown(
+    data_dir: Path = DEFAULT_DATA_DIR,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+    config_file: Path | None = None,
+    verbose: bool = False,
+    limit: int | None = None,
+    dry_run: bool = False,
+    transport: Transport | None = None,
+    converter: Converter = REAL_CONVERTER,
+) -> dict[str, int]:
+    """Produce a markdown rendering for each known paper.
+
+    Returns a counts dict. A stage of ``fetch`` -- callable on its own for
+    tests or granular use, not exposed on the CLI. *converter* is a test
+    seam (like *transport*); it defaults to the real arxiv2md/pypandoc
+    converter.
+    """
+    log = get_logger(data_dir, "render", verbose)
+    cfg = load_config(data_dir, config_file)
+    return fetch_mod.render.run(
+        data_dir, cache_dir, cfg, log,
+        limit=limit, dry_run=dry_run, transport=transport, converter=converter,
     )
 
 
@@ -67,18 +95,26 @@ def fetch(
     dry_run: bool = False,
     transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
-) -> dict[str, int]:
-    """Produce a markdown rendering for each known paper.
+) -> dict[str, object]:
+    """Run the daily ingest cycle: sync-metadata, then render markdown.
 
-    Returns a counts dict. *converter* is a test seam (like *transport*); it
-    defaults to the real arxiv2md/pypandoc converter.
+    Returns ``{"added", "updated", "render", "status"}``. Each non-dry run
+    appends a record to ``data_dir/runs.jsonl`` -- a durable history for
+    investigating what a given run did.
+
+    Classify is a separate command (``api.classify``) on its own schedule;
+    fetch does not trigger it. Keeping ingest and classify decoupled lets
+    the fetch cron stay quick and predictable while classify can be rerun
+    cheaply when prompts change.
     """
     log = get_logger(data_dir, "fetch", verbose)
     cfg = load_config(data_dir, config_file)
-    return fetch_mod.run(
+    result = fetch_mod.run(
         data_dir, cache_dir, cfg, log,
         limit=limit, dry_run=dry_run, transport=transport, converter=converter,
     )
+    result["status"] = "" if dry_run else status_mod.render(data_dir)
+    return result
 
 
 def classify(
@@ -108,62 +144,3 @@ def classify(
 def status(data_dir: Path = DEFAULT_DATA_DIR) -> str:
     """Return the status report, computed by scanning the data dir."""
     return status_mod.render(data_dir)
-
-
-def run(
-    data_dir: Path = DEFAULT_DATA_DIR,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
-    config_file: Path | None = None,
-    verbose: bool = False,
-    limit: int | None = None,
-    dry_run: bool = False,
-    transport: Transport | None = None,
-    converter: Converter = REAL_CONVERTER,
-) -> dict[str, object]:
-    """Run the ingest pipeline: sync-metadata then fetch.
-
-    Returns ``{"added", "updated", "fetch", "status"}``. Each non-dry run
-    appends a record to ``data_dir/runs.jsonl`` -- a durable history
-    (timing and counts) for investigating what a given run did.
-
-    Classify is a separate process; run it via ``fetcher classify`` (or
-    ``api.classify``) on its own schedule. Keeping ingest and classify
-    decoupled lets the fetch cron stay quick and predictable while
-    classify can be rerun cheaply when prompts change.
-    """
-    log = get_logger(data_dir, "run", verbose)
-    cfg = load_config(data_dir, config_file)
-
-    started_at = datetime.now(timezone.utc).isoformat()
-    t0 = time.monotonic()
-
-    log.info("=== run: sync-metadata ===")
-    added, updated = sync_mod.run(
-        data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, transport=transport,
-    )
-    log.info("=== run: fetch ===")
-    counts = fetch_mod.run(
-        data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, transport=transport, converter=converter,
-    )
-    log.info("=== run: done ===")
-
-    if not dry_run:
-        record = {
-            "started_at": started_at,
-            "finished_at": datetime.now(timezone.utc).isoformat(),
-            "duration_s": round(time.monotonic() - t0, 3),
-            "added": added,
-            "updated": updated,
-            "fetch": counts,
-        }
-        with (data_dir / "runs.jsonl").open("a") as fh:
-            fh.write(json.dumps(record) + "\n")
-
-    return {
-        "added": added,
-        "updated": updated,
-        "fetch": counts,
-        "status": "" if dry_run else status_mod.render(data_dir),
-    }
