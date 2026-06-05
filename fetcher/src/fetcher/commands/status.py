@@ -5,20 +5,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..shared.config import Config, load_config
 from ..shared.paths import iter_paper_dirs
+from .classify.coaxed import flag_name, load_coaxed
 
 
-def _read_expected_categories(root: Path) -> set[str]:
-    """Set of category ids from ``categories.json`` at the dirsql ROOT
-    (= ``data_dir.parent``). Empty set if the file is missing or unreadable
-    -- callers treat that as "taxonomy not configured yet"."""
-    cats_path = root / "categories.json"
-    if not cats_path.exists():
-        return set()
-    try:
-        return {c["id"] for c in json.loads(cats_path.read_text())}
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        return set()
+def _expected_categories(config: Config) -> set[str]:
+    """Set of category ids derived from ``[classify] prompts_dirs`` --
+    each compiled prompt's output field name is its category id. Empty
+    set if classify is not configured or no prompts dir is compiled
+    yet; callers treat that as "taxonomy not configured."""
+    cats: set[str] = set()
+    for raw in config.classify.prompts_dirs:
+        cp = load_coaxed(Path(raw))
+        if cp is not None:
+            cats.add(flag_name(cp))
+    return cats
 
 
 def _human(n: int) -> str:
@@ -30,13 +32,17 @@ def _human(n: int) -> str:
     return f"{size:.1f} TB"
 
 
-def render(data_dir: Path) -> str:
-    """Build the status report by walking the paper folders."""
-    # "Fully classified" = the paper has a classifications/<cat>.json for
-    # every category in the taxonomy. If categories.json is missing we
-    # fall back to "has at least one classification" (best the data
-    # allows) -- the cron is healthy when classification has begun.
-    expected_cats = _read_expected_categories(data_dir.parent)
+def render(data_dir: Path, config_file: Path | None = None) -> str:
+    """Build the status report by walking the paper folders.
+
+    Reads ``[classify] prompts_dirs`` from config to know which categories
+    a fully-classified paper should carry. With no prompts configured the
+    "fully classified" count falls back to "has at least one classification."
+    """
+    # logsetup is unused here -- status is read-only and silent except for
+    # what it returns. Load config purely for the expected-categories set.
+    cfg = load_config(data_dir, config_file)
+    expected_cats = _expected_categories(cfg)
     papers = 0
     have_md = 0
     no_md = 0

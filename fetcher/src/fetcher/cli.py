@@ -74,9 +74,12 @@ def classify(
 
 
 @app.command("status")
-def status(data_dir: Path = DataDir) -> None:
+def status(
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+) -> None:
     """Print counts: papers known, markdown on disk, classified."""
-    typer.echo(api.status(data_dir))
+    typer.echo(api.status(data_dir, config))
 
 
 if __name__ == "__main__":

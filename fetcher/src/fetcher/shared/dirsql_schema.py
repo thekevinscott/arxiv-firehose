@@ -9,9 +9,14 @@ factory.
 Tables exposed:
 
     papers              -- one row per paper folder (from metadata.json)
-    categories          -- one row per known classifier (from categories.json)
     papers_categories   -- one row per (paper, category) outcome (from
                            data/<id>/classifications/<cat>.json)
+
+The taxonomy itself (the set of category ids) is **not** a dirsql table.
+It is derived from ``[classify] prompts_dirs`` in config at query time --
+each compiled prompt's output field name *is* its category id. That keeps
+the source of truth single (prompts dirs) and removes a redundant
+``categories.json`` file that had to be kept in sync by hand.
 
 ``ROOT`` is the directory dirsql scans (defaults to the production
 location on tower; override with ``ARXIV_FIREHOSE_ROOT`` for local
@@ -57,10 +62,6 @@ def _extract_paper(path: str) -> list[dict]:
     }]
 
 
-def _extract_categories(path: str) -> list[dict]:
-    return _read_json(path)
-
-
 def _extract_paper_category(path: str) -> list[dict]:
     obj = _read_json(path)
     parts = Path(path).parts
@@ -92,14 +93,6 @@ def build_app(root: str | os.PathLike | None = None) -> DirSQL:
                 glob="data/*/metadata.json",
                 extract=_extract_paper,
             ),
-            Table(
-                ddl="""CREATE TABLE categories (
-                    id   TEXT PRIMARY KEY,
-                    name TEXT
-                )""",
-                glob="categories.json",
-                extract=_extract_categories,
-            ),
             # No composite PRIMARY KEY -- dirsql appends synthetic
             # columns after the DDL, and SQLite forbids columns after a
             # table-level constraint. Uniqueness comes from the
@@ -117,23 +110,10 @@ def build_app(root: str | os.PathLike | None = None) -> DirSQL:
     )
 
 
-# SQL: every (paper, category) pair that has no classification file yet.
-# Used by classify.run as the work queue -- "only classify what's
-# missing." Drives idempotency for free (an existing file means a row in
-# papers_categories means the LEFT JOIN drops the pair).
-MISSING_PAIRS_SQL = """
-    SELECT p.arxiv_id AS paper_id, c.id AS category_id
-    FROM papers p
-    CROSS JOIN categories c
-    LEFT JOIN papers_categories pc
-      ON pc.paper_id = p.arxiv_id AND pc.category_id = c.id
-    WHERE pc.paper_id IS NULL
-    ORDER BY p.arxiv_id, c.id
-"""
+# SQL: every paper id, ordered for deterministic work queues.
+ALL_PAPERS_SQL = "SELECT arxiv_id AS paper_id FROM papers ORDER BY arxiv_id"
 
-# Same shape, every pair (for --force reruns).
-ALL_PAIRS_SQL = """
-    SELECT p.arxiv_id AS paper_id, c.id AS category_id
-    FROM papers p CROSS JOIN categories c
-    ORDER BY p.arxiv_id, c.id
-"""
+# SQL: every (paper, category) pair that already has a classification file.
+# classify.run cross-joins this against the in-config category list and
+# subtracts existing pairs to compute the missing work queue.
+EXISTING_PAIRS_SQL = "SELECT paper_id, category_id FROM papers_categories"

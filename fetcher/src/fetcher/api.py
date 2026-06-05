@@ -113,7 +113,7 @@ def fetch(
         data_dir, cache_dir, cfg, log,
         limit=limit, dry_run=dry_run, transport=transport, converter=converter,
     )
-    result["status"] = "" if dry_run else status_mod.render(data_dir)
+    result["status"] = "" if dry_run else status_mod.render(data_dir, config_file)
     return result
 
 
@@ -141,6 +141,13 @@ def classify(
     )
 
 
-def status(data_dir: Path = DEFAULT_DATA_DIR) -> str:
-    """Return the status report, computed by scanning the data dir."""
-    return status_mod.render(data_dir)
+def status(
+    data_dir: Path = DEFAULT_DATA_DIR,
+    config_file: Path | None = None,
+) -> str:
+    """Return the status report, computed by scanning the data dir.
+
+    Reads ``[classify] prompts_dirs`` from config to know which categories
+    a "fully classified" paper should carry.
+    """
+    return status_mod.render(data_dir, config_file)

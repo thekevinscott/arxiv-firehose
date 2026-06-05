@@ -138,42 +138,48 @@ def describe_classify():
             assert not (data_dir / pid / "classifications").exists()
         assert "classify: disabled" in _read_classify_log(data_dir)
 
-    def it_no_ops_when_categories_json_is_missing(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+    def it_no_ops_when_every_prompts_dir_is_unbuilt(
+        data_dir, cache_dir, fake_transport, fake_classifier, tmp_path
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
-        # Remove the fixture-written categories.json; classify must
-        # treat "no taxonomy" the same as "no prompts" -- log + zero.
-        (data_dir_classify.parent / "categories.json").unlink()
+        # Point prompts_dirs at a path with no compiled artifact --
+        # classify must log + zero, same as the empty-prompts_dirs case.
+        # Keeps the daily cron green while the user is still labeling
+        # and compiling prompts.
+        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        cfg = (data_dir / "config.toml").read_text()
+        cfg += (
+            "\n[classify]\n"
+            f'prompts_dirs = ["{tmp_path / "no-such-prompt"}"]\n'
+            'model = "test-model"\n'
+        )
+        (data_dir / "config.toml").write_text(cfg)
 
-        counts = classify(data_dir_classify, classifier=fake_classifier)
+        counts = classify(data_dir, classifier=fake_classifier)
 
         assert counts == {"classified": 0, "cached": 0, "skipped": 0, "failed": 0}
         for pid in PAPERS:
-            assert not (data_dir_classify / pid / "classifications").exists()
-        assert "categories.json" in _read_classify_log(data_dir_classify)
+            assert not (data_dir / pid / "classifications").exists()
+        assert "classify: disabled" in _read_classify_log(data_dir)
 
-    def it_skips_a_category_with_no_matching_prompts_dir(
+    def it_leaves_orphan_classification_files_untouched(
         data_dir_classify, cache_dir, fake_transport, fake_classifier
     ):
+        # A category that's no longer in prompts_dirs (e.g. dropped from
+        # config) may still have a classifications/<old>.json on disk
+        # from a previous run. classify must leave it alone: the work
+        # queue is driven by configured prompts × papers, not by
+        # what's on disk.
         sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
-        # Add a third category to the taxonomy without adding a matching
-        # prompts_dir. Those (paper, cat) pairs have no classifier, so
-        # they are logged and counted as skipped, never written.
-        cats_path = data_dir_classify.parent / "categories.json"
-        cats = json.loads(cats_path.read_text())
-        cats.append({"id": "is_about_dragons", "name": "About dragons"})
-        cats_path.write_text(json.dumps(cats))
+        orphan = _classification_path(data_dir_classify, "2401.00001", "is_about_dragons")
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text(json.dumps({"output": True, "model": "orphan"}))
 
         counts = classify(data_dir_classify, classifier=fake_classifier)
 
-        # 4 papers × 2 cats with prompts = 8 classified.
-        # 4 papers × 1 cat without prompts = 4 skipped.
+        # 8 in-config pairs run; the orphan is neither counted nor touched.
         assert counts["classified"] == 8
-        assert counts["skipped"] == 4
-        for pid in PAPERS:
-            assert not _classification_path(data_dir_classify, pid, "is_about_dragons").exists()
-        assert "no prompt for category is_about_dragons" in _read_classify_log(data_dir_classify)
+        assert orphan.exists()
+        assert json.loads(orphan.read_text())["model"] == "orphan"
 
     def it_makes_no_writes_on_a_dry_run(
         data_dir_classify, cache_dir, fake_transport, fake_classifier
