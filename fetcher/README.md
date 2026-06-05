@@ -50,6 +50,9 @@ the data dir is what you keep.
   rss/{category}.pkl           cached RSS feed   — expires after 1 day
   pdf/{arxiv_id}vN.pkl         cached PDF bytes  — never expires
   eprint/{arxiv_id}.pkl        cached e-print archive bytes — never expires
+  html/{arxiv_id}vN.pkl        cached native HTML bytes     — never expires
+  llm/{sha}.pkl                cached LLM response, keyed by (model, prompt,
+                               schema) — never expires
 ```
 
 ## Caching strategy
@@ -61,6 +64,7 @@ cache, so arxiv is hit as rarely as possible:
 |------------------|----------------|-----|
 | RSS feed         | 1 day          | arxiv regenerates each feed once a day, after the daily announcement. |
 | PDF / LaTeX      | never expires  | A paper's content is immutable for a fixed version. |
+| LLM response     | never expires  | A `(model, prompt, schema)` triple is deterministic; the key encodes every input that could change the answer. |
 
 Consequences, all verifiable by re-running:
 

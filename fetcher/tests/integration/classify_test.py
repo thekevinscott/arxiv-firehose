@@ -1,14 +1,17 @@
 """Integration tests for the ``classify`` SDK function.
 
-classify is **dirsql-query-driven**: it asks the in-process dirsql
-database for every (paper, category) pair that lacks a classification
-file, then runs the matching coaxed prompt against each. Idempotency is
-free -- already-classified pairs do not appear in the query result.
+classify is **dirsql-query-driven**: it materializes a categories index
+under ``<ROOT>/categories/`` from ``[classify] prompts_dirs``, then asks
+dirsql for every (paper, category) pair that lacks a classification
+file (one SQL ``CROSS JOIN ... LEFT JOIN ... WHERE NULL``). Idempotency
+is free -- already-classified pairs never appear in the query result.
+Re-running the LLM for an existing pair is also free at the network
+layer: ``http_classifier`` sits behind cachetta keyed by
+``(model, prompt, schema)``.
 
 Output layout: one JSON file per (paper, category) at
 ``<data_dir>/<arxiv_id>/classifications/<category_id>.json``, with shape
-``{"output": <bool>, "model": ..., "classified_at": ...}``. The
-combined-per-paper ``classification.json`` from the v1 layout is gone.
+``{"output": <bool>, "model": ..., "classified_at": ...}``.
 
 A fake Ollama-style classifier is injected through the SDK's
 ``classifier=`` parameter -- never patched. The real ``CoaxedPrompt`` *is*
@@ -23,8 +26,6 @@ per-paper flag decisions all the way through the wiring.
 
 import json
 from pathlib import Path
-
-import pytest
 
 from fetcher import classify, sync_metadata
 
@@ -84,17 +85,17 @@ def describe_classify():
     ):
         sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
         # Pre-seed one pair to look "already done" -- it must NOT appear
-        # in the dirsql work queue, so the classifier sees one fewer call.
+        # in the dirsql missing-pairs query, so the classifier sees one
+        # fewer call and the seeded file is left untouched.
         seeded = _classification_path(data_dir_classify, "2401.00001", "is_about_ml")
         seeded.parent.mkdir(parents=True, exist_ok=True)
         seeded.write_text(json.dumps({"output": True, "model": "seeded"}))
 
         counts = classify(data_dir_classify, classifier=fake_classifier)
 
-        # 7 missing pairs (8 - 1 pre-seeded). The seeded file is left
-        # untouched (still says model=seeded).
+        # 7 missing pairs (8 - 1 pre-seeded). The seeded file's model
+        # field still says "seeded" -- classify never re-wrote it.
         assert counts["classified"] == 7
-        assert counts["cached"] == 1
         assert _classification(data_dir_classify, "2401.00001", "is_about_ml")["model"] == "seeded"
 
     def it_no_ops_when_every_pair_is_already_classified(
@@ -106,21 +107,28 @@ def describe_classify():
         again = classify(data_dir_classify, classifier=fake_classifier)
 
         # Every (paper, cat) pair now has a file -> the missing-pairs
-        # query returns nothing -> no LLM calls.
-        assert again["classified"] == 0
-        assert again["cached"] == 8
+        # query returns nothing -> no classifier calls. No "cached"
+        # counter -- the SQL filter is the only idempotency layer.
+        assert again == {"classified": 0, "skipped": 0, "failed": 0}
 
-    def it_reclassifies_every_pair_with_force(
+    def it_reclassifies_a_pair_after_its_file_is_deleted(
         data_dir_classify, cache_dir, fake_transport, fake_classifier
     ):
+        # The way to "re-run" classify for a pair is to delete its
+        # output file. The SQL query then surfaces it again. cachetta
+        # serves the LLM response from disk so the re-classify costs
+        # nothing at the network layer.
         sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
         classify(data_dir_classify, classifier=fake_classifier)
 
-        again = classify(data_dir_classify, classifier=fake_classifier, force=True)
+        target = _classification_path(data_dir_classify, "2401.00001", "is_about_markdown")
+        target.unlink()
+        counts = classify(data_dir_classify, classifier=fake_classifier)
 
-        # --force ignores the missing-pairs filter and reruns every pair.
-        assert again["classified"] == 8
-        assert again["cached"] == 0
+        assert counts["classified"] == 1
+        assert target.exists()
+        payload = json.loads(target.read_text())
+        assert payload["output"] is True  # 00001 still says "markdown"
 
     def it_no_ops_when_prompts_dirs_is_empty(
         data_dir, cache_dir, fake_transport, fake_classifier
@@ -133,7 +141,7 @@ def describe_classify():
 
         counts = classify(data_dir, classifier=fake_classifier)
 
-        assert counts == {"classified": 0, "cached": 0, "skipped": 0, "failed": 0}
+        assert counts == {"classified": 0, "skipped": 0, "failed": 0}
         for pid in PAPERS:
             assert not (data_dir / pid / "classifications").exists()
         assert "classify: disabled" in _read_classify_log(data_dir)
@@ -156,7 +164,7 @@ def describe_classify():
 
         counts = classify(data_dir, classifier=fake_classifier)
 
-        assert counts == {"classified": 0, "cached": 0, "skipped": 0, "failed": 0}
+        assert counts == {"classified": 0, "skipped": 0, "failed": 0}
         for pid in PAPERS:
             assert not (data_dir / pid / "classifications").exists()
         assert "classify: disabled" in _read_classify_log(data_dir)
@@ -166,9 +174,10 @@ def describe_classify():
     ):
         # A category that's no longer in prompts_dirs (e.g. dropped from
         # config) may still have a classifications/<old>.json on disk
-        # from a previous run. classify must leave it alone: the work
-        # queue is driven by configured prompts × papers, not by
-        # what's on disk.
+        # from a previous run. The materialized <ROOT>/categories/
+        # index will NOT carry an entry for it, so the CROSS JOIN does
+        # not pair it with any paper; the orphan classification stays
+        # untouched and uncounted.
         sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
         orphan = _classification_path(data_dir_classify, "2401.00001", "is_about_dragons")
         orphan.parent.mkdir(parents=True, exist_ok=True)
@@ -180,6 +189,56 @@ def describe_classify():
         assert counts["classified"] == 8
         assert orphan.exists()
         assert json.loads(orphan.read_text())["model"] == "orphan"
+
+    def it_writes_a_categories_index_under_root(
+        data_dir_classify, cache_dir, fake_transport, fake_classifier
+    ):
+        # The dirsql `categories` table is fed by per-cat index files
+        # under <ROOT>/categories/. classify materializes them at the
+        # start of each run so dirsql has a table to CROSS JOIN against.
+        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+
+        classify(data_dir_classify, classifier=fake_classifier)
+
+        cats_dir = data_dir_classify.parent / "categories"
+        assert (cats_dir / "is_about_ml.json").exists()
+        assert (cats_dir / "is_about_markdown.json").exists()
+        payload = json.loads((cats_dir / "is_about_ml.json").read_text())
+        assert payload["category_id"] == "is_about_ml"
+        assert payload["prompts_dir"]  # non-empty pointer back to source
+
+    def it_removes_a_category_index_when_its_prompts_dir_is_dropped(
+        data_dir_classify, cache_dir, fake_transport, fake_classifier, tmp_path
+    ):
+        # Run once with two categories -- index has both files. Then
+        # drop one from config and re-run; the stale index file must
+        # be removed so dirsql does not surface (paper, stale-cat)
+        # pairs and trigger pointless classifier calls.
+        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        classify(data_dir_classify, classifier=fake_classifier)
+
+        cats_dir = data_dir_classify.parent / "categories"
+        assert (cats_dir / "is_about_markdown.json").exists()
+
+        # Rewrite config to keep only is-about-ml. The base config in
+        # the data_dir fixture is the conftest CONFIG_TOML plus the
+        # [classify] block appended by data_dir_classify -- safe to
+        # truncate everything from "[classify]" onward and re-append
+        # a single-prompt block.
+        full = (data_dir_classify / "config.toml").read_text()
+        ml_path = tmp_path / "prompts" / "is-about-ml"
+        trimmed = full.split("[classify]", 1)[0].rstrip()
+        new_cfg = (
+            f"{trimmed}\n\n[classify]\n"
+            f'prompts_dirs = ["{ml_path}"]\n'
+            'model = "test-model"\n'
+        )
+        (data_dir_classify / "config.toml").write_text(new_cfg)
+
+        classify(data_dir_classify, classifier=fake_classifier)
+
+        assert (cats_dir / "is_about_ml.json").exists()
+        assert not (cats_dir / "is_about_markdown.json").exists()
 
     def it_makes_no_writes_on_a_dry_run(
         data_dir_classify, cache_dir, fake_transport, fake_classifier

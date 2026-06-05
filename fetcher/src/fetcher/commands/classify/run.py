@@ -1,16 +1,26 @@
-"""classify.run: for every (paper, category) pair that lacks a
-classification file, call the matching coaxed prompt against the paper's
-abstract.
+"""classify.run: dirsql-driven, cachetta-cached LLM classification.
 
-One file per (paper, category) at ``<data_dir>/<arxiv_id>/classifications/
-<category_id>.json``, shape ``{"output": <bool>, "model": ..., "classified_at": ...}``.
-Idempotency is free -- a pair is "missing" only if its file is not on
-disk, so an already-classified pair is never reclassified (unless
-``--force`` is set).
+Pipeline (no in-process caching anywhere):
 
-The taxonomy of category ids is derived from ``[classify] prompts_dirs``
-in config: each compiled coaxer artifact's output field name *is* its
-category id. There is no separate ``categories.json`` to keep in sync.
+1. Load each compiled prompt named in ``[classify] prompts_dirs`` -- in
+   memory only, for the duration of the run.
+2. Materialize one file per active category at
+   ``<ROOT>/categories/<cat>.json`` and remove any orphan from a
+   dropped prompts_dir. This is the index dirsql ``CROSS JOIN``s
+   against ``papers`` -- the only on-disk reflection of the configured
+   taxonomy.
+3. Ask dirsql for every ``(paper, category)`` pair that lacks a
+   classification file. One query, one ``LEFT JOIN ... WHERE NULL``.
+4. For each pair, render the prompt and hand it to the classifier.
+   The default HTTP classifier sits behind cachetta keyed by
+   ``(model, prompt, schema_json)`` -- a repeat call serves bytes from
+   disk with no network hit.
+5. Atomic-write the per-pair result file. dirsql's watcher picks it up
+   for the next run; the missing-pairs query then excludes it.
+
+Output: one JSON file per (paper, category) at
+``<data_dir>/<arxiv_id>/classifications/<cat_id>.json``, shape
+``{"output": <bool>, "model": ..., "classified_at": ...}``.
 """
 
 from __future__ import annotations
@@ -25,7 +35,7 @@ from typing import Any
 from coaxer import CoaxedPrompt
 
 from ...shared.config import Config
-from ...shared.dirsql_schema import ALL_PAPERS_SQL, EXISTING_PAIRS_SQL, build_app
+from ...shared.dirsql_schema import MISSING_PAIRS_SQL, build_app
 from .coaxed import flag_name, load_coaxed, render_inputs
 from .http import http_classifier
 from .store import write_classification
@@ -40,26 +50,30 @@ def run(
     *,
     limit: int | None = None,
     dry_run: bool = False,
-    force: bool = False,
     classifier: Classifier | None = None,
 ) -> dict[str, int]:
-    """Classify every missing (paper, category) pair. Returns a counts dict.
+    """Classify every missing (paper, category) pair.
 
-    counts: ``{"classified", "cached", "skipped", "failed"}``.
+    counts: ``{"classified", "skipped", "failed"}``.
     - classified -- pair the classifier successfully labeled this run.
-    - cached     -- pair already had a classification file (didn't run).
     - skipped    -- paper whose ``metadata.json`` was unreadable.
     - failed     -- pair the classifier raised on; no file written.
 
-    When ``[classify] prompts_dirs`` is empty (or none of them are
-    compiled), ``run`` logs one "disabled" line and returns zeros -- the
-    daily cron stays green while the taxonomy is still being authored.
+    There is **no** "cached" counter. The missing-pairs SQL query is
+    the only idempotency layer (pairs with a file on disk simply do
+    not appear in the result). The only caching is the cachetta layer
+    inside the HTTP classifier; it is transparent.
 
-    *cache_dir* is the cachetta location the LLM HTTP client writes to;
-    a repeat ``(model, prompt, schema)`` triple serves from disk with
-    no network call. This is the only caching mechanism in classify.
+    When ``[classify] prompts_dirs`` is empty (or none of them are
+    compiled), ``run`` logs one "disabled" line and returns zeros --
+    the daily cron stays green while the taxonomy is still being
+    authored.
+
+    *cache_dir* is the cachetta location the LLM HTTP client writes to.
+    A repeat ``(model, prompt, schema)`` triple serves from disk with
+    no network call.
     """
-    counts = {"classified": 0, "cached": 0, "skipped": 0, "failed": 0}
+    counts = {"classified": 0, "skipped": 0, "failed": 0}
 
     prompts_dirs = list(config.classify.prompts_dirs)
     if not prompts_dirs:
@@ -71,11 +85,10 @@ def run(
         log.info("classify: disabled (no usable prompts dirs)")
         return counts
 
-    cats = sorted(coaxed_by_cat)
-    papers, existing = asyncio.run(_query_state(data_dir.parent))
-    pairs = _work_queue(papers, cats, existing, force=force)
-    if not force:
-        counts["cached"] = len(papers) * len(cats) - len(pairs)
+    root = data_dir.parent
+    _materialize_categories(root, coaxed_by_cat)
+
+    pairs = asyncio.run(_query_missing_pairs(root))
 
     if classifier is None:
         classifier = http_classifier(
@@ -87,8 +100,8 @@ def run(
         )
 
     log.info(
-        "classify start: %d pairs to process (cached=%d), %d classifiers, model=%s",
-        len(pairs), counts["cached"], len(coaxed_by_cat), config.classify.model,
+        "classify start: %d missing pairs, %d categories, model=%s",
+        len(pairs), len(coaxed_by_cat), config.classify.model,
     )
 
     processed = 0
@@ -105,35 +118,51 @@ def run(
     return counts
 
 
-async def _query_state(root: Path) -> tuple[list[str], set[tuple[str, str]]]:
-    """Return (paper_ids, existing_pairs).
+def _materialize_categories(
+    root: Path, coaxed_by_cat: dict[str, CoaxedPrompt]
+) -> None:
+    """Mirror the active prompts as ``<root>/categories/<cat>.json``.
 
-    ``existing_pairs`` is the set of (paper, category) that already have a
-    classification file on disk -- subtracted from the full cross product
-    to build the missing-work queue.
+    Each run rewrites the dir to match the loaded prompts exactly. A
+    file for a category that's been dropped from config is removed so
+    dirsql's ``categories`` table stays in lockstep with config -- the
+    SQL missing-pairs query will not surface a (paper, dropped-cat)
+    pair, and any prior classification.json for the dropped cat is
+    left untouched on disk (an orphan, intentionally).
+    """
+    cats_dir = root / "categories"
+    cats_dir.mkdir(parents=True, exist_ok=True)
+    active = set(coaxed_by_cat)
+
+    for existing in cats_dir.glob("*.json"):
+        if existing.stem not in active:
+            existing.unlink()
+
+    for cat_id, coaxed in coaxed_by_cat.items():
+        payload = {
+            "category_id": cat_id,
+            "prompts_dir": str(Path(coaxed._path).resolve()),
+        }
+        dest = cats_dir / f"{cat_id}.json"
+        tmp = dest.with_name(dest.name + ".part")
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        tmp.rename(dest)
+
+
+async def _query_missing_pairs(root: Path) -> list[tuple[str, str]]:
+    """Run the missing-pairs SQL against an in-process dirsql app.
+
+    Returns ``(paper_id, category_id)`` tuples for every pair without a
+    classification file on disk. The order is the SQL's
+    ``ORDER BY (paper_id, category_id)`` -- deterministic so
+    ``--limit`` is reproducible.
     """
     db = build_app(root)
     await db.ready()
-    paper_rows = await db.query(ALL_PAPERS_SQL)
-    pc_rows = await db.query(EXISTING_PAIRS_SQL)
-    papers = [r["paper_id"] for r in paper_rows]
-    existing = {(r["paper_id"], r["category_id"]) for r in pc_rows}
-    return papers, existing
-
-
-def _work_queue(
-    papers: list[str],
-    cats: list[str],
-    existing: set[tuple[str, str]],
-    *,
-    force: bool,
-) -> list[tuple[str, str]]:
-    """Cross-product papers × cats, ordered (paper, cat). With force=False
-    skips pairs already in *existing* (the idempotent path)."""
-    pairs = [(p, c) for p in papers for c in cats]
-    if force:
-        return pairs
-    return [pair for pair in pairs if pair not in existing]
+    rows = await db.query(MISSING_PAIRS_SQL)
+    return [(r["paper_id"], r["category_id"]) for r in rows]
 
 
 def _load_coaxed_by_category(

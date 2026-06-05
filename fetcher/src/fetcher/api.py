@@ -131,7 +131,6 @@ def classify(
     verbose: bool = False,
     limit: int | None = None,
     dry_run: bool = False,
-    force: bool = False,
     classifier: Classifier | None = None,
 ) -> dict[str, int]:
     """Classify every paper's abstract into topic flags.
@@ -141,17 +140,25 @@ def classify(
     With ``[classify] prompts_dirs = []`` the call no-ops cleanly so the
     cron stays green while labels are still being authored.
 
+    Idempotency is dirsql-driven: the missing-pairs SQL query only
+    surfaces (paper, category) pairs without a classification file on
+    disk, so a re-run is naturally a no-op once everything is labeled.
+    To re-poll the LLM for a pair, delete its
+    ``classifications/<cat>.json``; cachetta will serve the prior
+    response from disk anyway (no network).
+
     *cache_dir* is where the cachetta-backed LLM response cache lives
     (defaults to ``~/.cache/arxiv-firehose``); a repeat ``(model,
     prompt, schema)`` triple serves from disk with no network call.
     The cache is the only mechanism that makes a re-run cheap -- there
-    is no in-memory dict and no file-existence shortcut.
+    is no in-memory dict, no file-existence shortcut beyond the SQL
+    filter, and no ``--force`` flag.
     """
     log = get_logger(data_dir, "classify", verbose)
     cfg = load_config(data_dir, config_file)
     return classify_mod.run(
         data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, force=force, classifier=classifier,
+        limit=limit, dry_run=dry_run, classifier=classifier,
     )
 
 

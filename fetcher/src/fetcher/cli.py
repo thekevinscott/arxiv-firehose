@@ -64,15 +64,17 @@ def classify(
     verbose: bool = Verbose,
     limit: Optional[int] = Limit,
     dry_run: bool = DryRun,
-    force: bool = typer.Option(
-        False, "--force",
-        help="Reclassify every (paper, category) pair, ignoring existing files.",
-    ),
 ) -> None:
-    """Classify each paper's abstract into topic flags."""
+    """Classify each paper's abstract into topic flags.
+
+    Idempotency lives in the dirsql missing-pairs query: a paper with
+    a classifications/<cat>.json on disk is skipped server-side. To
+    re-poll the LLM for a pair, delete its file; cachetta will serve
+    the prior response from disk anyway.
+    """
     api.classify(
         data_dir, cache_dir, config,
-        verbose=verbose, limit=limit, dry_run=dry_run, force=force,
+        verbose=verbose, limit=limit, dry_run=dry_run,
     )
 
 

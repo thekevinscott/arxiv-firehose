@@ -11,12 +11,18 @@ Tables exposed:
     papers              -- one row per paper folder (from metadata.json)
     papers_categories   -- one row per (paper, category) outcome (from
                            data/<id>/classifications/<cat>.json)
+    categories          -- one row per active category (from
+                           ROOT/categories/<cat>.json, materialized by
+                           classify.run from config.classify.prompts_dirs)
 
-The taxonomy itself (the set of category ids) is **not** a dirsql table.
-It is derived from ``[classify] prompts_dirs`` in config at query time --
-each compiled prompt's output field name *is* its category id. That keeps
-the source of truth single (prompts dirs) and removes a redundant
-``categories.json`` file that had to be kept in sync by hand.
+The taxonomy of category ids lives in **two** mirrored places: the
+authored config (``[classify] prompts_dirs``) and the per-cat index
+files under ``ROOT/categories/`` that classify.run rewrites at the
+start of every run. Authoring stays in config; the index files exist
+solely so dirsql has a table to ``SELECT category_id FROM`` and
+``CROSS JOIN`` against ``papers``. Same pattern as ``papers`` (rows
+from per-paper ``metadata.json`` files written by sync) -- materialize
+derived state as files dirsql can scan.
 
 ``ROOT`` is the directory dirsql scans (defaults to the production
 location on tower; override with ``ARXIV_FIREHOSE_ROOT`` for local
@@ -75,6 +81,17 @@ def _extract_paper_category(path: str) -> list[dict]:
     }]
 
 
+def _extract_category(path: str) -> list[dict]:
+    """One categories row per file under ``categories/``. The cat id is
+    the file's stem; ``prompts_dir`` is whatever classify.run wrote there
+    (kept around as a pointer for debugging -- not joined against)."""
+    obj = _read_json(path)
+    return [{
+        "category_id": Path(path).stem,
+        "prompts_dir": str(obj.get("prompts_dir", "")),
+    }]
+
+
 def build_app(root: str | os.PathLike | None = None) -> DirSQL:
     """Build a DirSQL app rooted at *root* (or ``ARXIV_FIREHOSE_ROOT``,
     or the production default). Must be called from inside an async
@@ -106,14 +123,29 @@ def build_app(root: str | os.PathLike | None = None) -> DirSQL:
                 glob="data/*/classifications/*.json",
                 extract=_extract_paper_category,
             ),
+            Table(
+                ddl="""CREATE TABLE categories (
+                    category_id TEXT PRIMARY KEY,
+                    prompts_dir TEXT
+                )""",
+                glob="categories/*.json",
+                extract=_extract_category,
+            ),
         ],
     )
 
 
-# SQL: every paper id, ordered for deterministic work queues.
-ALL_PAPERS_SQL = "SELECT arxiv_id AS paper_id FROM papers ORDER BY arxiv_id"
-
-# SQL: every (paper, category) pair that already has a classification file.
-# classify.run cross-joins this against the in-config category list and
-# subtracts existing pairs to compute the missing work queue.
-EXISTING_PAIRS_SQL = "SELECT paper_id, category_id FROM papers_categories"
+# Every (paper, category) pair that has no classification file yet. The
+# CROSS JOIN materializes the full grid; the LEFT JOIN + WHERE-NULL keeps
+# only the missing cells. Result: one row per LLM call this run needs to
+# make. Re-runs return only the *new* missing pairs; cachetta makes any
+# accidental repeat call free.
+MISSING_PAIRS_SQL = """
+SELECT p.arxiv_id AS paper_id, c.category_id AS category_id
+FROM papers p
+CROSS JOIN categories c
+LEFT JOIN papers_categories pc
+    ON pc.paper_id = p.arxiv_id AND pc.category_id = c.category_id
+WHERE pc.paper_id IS NULL
+ORDER BY p.arxiv_id, c.category_id
+""".strip()
