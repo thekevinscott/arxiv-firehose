@@ -4,9 +4,10 @@ A thin typer wrapper over the Python SDK in ``api.py``: each command parses
 flags and delegates. No behavior lives here -- new behavior goes in the SDK.
 
 Two cron-level commands -- ``fetch`` (daily ingest) and ``classify``
-(daily labeling) -- plus ``status`` for read-only counts. The fetch stages
-(``sync_metadata`` and ``render_markdown``) are SDK-only; for granular
-debugging call them from a REPL.
+(daily labeling) -- ``status`` for read-only counts, and ``coax`` (a
+developer command) for compiling a labels dir into a prompt artifact.
+The fetch stages (``sync_metadata`` and ``render_markdown``) are SDK-only;
+for granular debugging call them from a REPL.
 """
 
 from __future__ import annotations
@@ -80,6 +81,47 @@ def status(
 ) -> None:
     """Print counts: papers known, markdown on disk, classified."""
     typer.echo(api.status(data_dir, config))
+
+
+@app.command("coax")
+def coax(
+    labels_dir: Path = typer.Argument(
+        ..., help="Labels dir to compile (must contain _schema.json + examples).",
+    ),
+    out_dir: Path = typer.Option(
+        ..., "--out", help="Where to write the compiled prompt artifact.",
+    ),
+    optimizer: Optional[str] = typer.Option(
+        None, "--optimizer",
+        help="Optimizer: 'gepa' (LLM-tuned) or omitted (raw template).",
+    ),
+    output_name: str = typer.Option(
+        "output", "--output-name",
+        help="Predicted field name in the rendered template (e.g. is_about_control).",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model",
+        help="Model tag for --optimizer gepa (e.g. phi4:14b on Ollama).",
+    ),
+    base_url: str = typer.Option(
+        api.DEFAULT_CLASSIFY_BASE_URL, "--base-url",
+        help="OpenAI-compatible endpoint for --optimizer gepa.",
+    ),
+    data_dir: Path = DataDir,
+    verbose: bool = Verbose,
+) -> None:
+    """Compile labels into a CoaxedPrompt artifact (content-cached)."""
+    result = api.coax(
+        labels_dir, out_dir, data_dir,
+        optimizer=optimizer,
+        output_name=output_name,
+        model=model,
+        base_url=base_url,
+        verbose=verbose,
+    )
+    typer.echo(
+        f"coax: {result['source']} (hash {result['hash']}) -> {result['out']}"
+    )
 
 
 if __name__ == "__main__":

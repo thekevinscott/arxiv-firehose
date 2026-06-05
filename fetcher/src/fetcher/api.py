@@ -20,10 +20,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from .commands import classify as classify_mod
+from .commands import coax as coax_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
 from .commands.classify import Classifier
-from .shared.config import DEFAULT_CACHE_DIR, DEFAULT_DATA_DIR, load_config
+from .shared.config import (
+    DEFAULT_CACHE_DIR,
+    DEFAULT_CLASSIFY_BASE_URL,
+    DEFAULT_DATA_DIR,
+    load_config,
+)
 from .shared.convert import REAL_CONVERTER, Converter
 from .shared.download import Transport
 from .shared.logsetup import get_logger
@@ -32,6 +38,7 @@ __all__ = [
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
     "classify",
+    "coax",
     "fetch",
     "render_markdown",
     "status",
@@ -138,6 +145,41 @@ def classify(
     return classify_mod.run(
         data_dir, cfg, log,
         limit=limit, dry_run=dry_run, force=force, classifier=classifier,
+    )
+
+
+def coax(
+    labels_dir: Path,
+    out_dir: Path,
+    data_dir: Path = DEFAULT_DATA_DIR,
+    *,
+    optimizer: str | None = None,
+    output_name: str = "output",
+    model: str | None = None,
+    base_url: str = DEFAULT_CLASSIFY_BASE_URL,
+    verbose: bool = False,
+    cache_root: Path = coax_mod.CACHE_ROOT,
+) -> dict[str, str]:
+    """Compile a labels dir into a CoaxedPrompt artifact at *out_dir*.
+
+    Content-cached under ``~/.cache/arxiv-firehose/classify/{hash}/`` --
+    unchanged labels skip the compile entirely. With *optimizer* = "gepa"
+    the labels are also used to fit a DSPy prompt against *model* /
+    *base_url* (defaults to the local Ollama).
+
+    Returns ``{"hash", "source", "out"}``. *source* is "cache" or "fresh".
+
+    *data_dir* is used only for the log file location -- coax doesn't
+    read or write paper data.
+    """
+    log = get_logger(data_dir, "coax", verbose)
+    return coax_mod.run(
+        labels_dir, out_dir, log,
+        optimizer=optimizer,
+        output_name=output_name,
+        model=model,
+        base_url=base_url,
+        cache_root=cache_root,
     )
 
 

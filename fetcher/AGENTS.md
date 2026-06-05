@@ -129,20 +129,21 @@ src/fetcher/
       sync.py       #   stage 1: arxiv RSS -> metadata.json per paper
       render.py     #   stage 2: HTML/LaTeX/PDF -> paper.md per paper
     classify/       # daily classify: abstract -> topic flags via LLM
+    coax.py         # developer command: compile labels -> prompt artifact
     status.py       # read-only counts (single-file command)
   shared/           # cross-command utilities (config, paths, logsetup,
                     # download, convert, dirsql_schema)
 ```
 
 CLI surface mirrors the commands/ folder: `fetcher fetch`, `fetcher
-classify`, `fetcher status`. The fetch stages (sync, render) are SDK-only
-(`api.sync_metadata`, `api.render_markdown`); they live as separate
-modules inside `commands/fetch/` so each has its own integration test
-file and can be called granularly.
+classify`, `fetcher status`, `fetcher coax`. The fetch stages (sync,
+render) are SDK-only (`api.sync_metadata`, `api.render_markdown`); they
+live as separate modules inside `commands/fetch/` so each has its own
+integration test file and can be called granularly.
 
-A command is a flat module while it fits in one file (`commands/status.py`).
-The moment it needs internal modules (multiple stages, a backend, a store,
-a prompt loader) it gets promoted to a subpackage (`commands/fetch/run.py`
-+ siblings, `commands/classify/run.py` + siblings). A module belongs in
-`shared/` only if it's imported by more than one command or by `api.py`
--- not a dumping ground.
+A command is a flat module while it fits in one file (`commands/status.py`,
+`commands/coax.py`). The moment it needs internal modules (multiple
+stages, a backend, a store, a prompt loader) it gets promoted to a
+subpackage (`commands/fetch/run.py` + siblings, `commands/classify/run.py`
++ siblings). A module belongs in `shared/` only if it's imported by more
+than one command or by `api.py` -- not a dumping ground.
