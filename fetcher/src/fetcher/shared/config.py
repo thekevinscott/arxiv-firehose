@@ -8,14 +8,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from cachetta import Cachetta
+from datetime import timedelta
+
 # Arxiv data: organized paper folders, kept beside the package so the default
 # is stable no matter which directory the command is invoked from. config.py
 # lives at fetcher/src/fetcher/config.py -> parents[2] is the fetcher/
 # package root, so the default data dir is fetcher/data. This holds only for
 # an editable/in-repo install; a packaged (wheel) install must pass --data-dir.
 DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-# Cache: cachetta's separate download store.
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
+DEFAULT_CACHE_DURATION = timedelta(days=365)
 
 # Default OpenAI-compatible LLM endpoint for classify. Points at a local
 # Ollama; override in config.toml's [classify] block to swap in vLLM,
@@ -23,6 +26,7 @@ DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
 # so http_classifier's kwarg default and ClassifyConfig stay in lockstep
 # -- single source of truth for the URL.
 DEFAULT_CLASSIFY_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_CLASSIFY_TIMEOUT_S = 60.0
 
 DEFAULT_CONFIG_TOML = """\
 [categories]
@@ -99,7 +103,7 @@ class ClassifyConfig(BaseModel):
     model: str = "phi4:14b"
     base_url: str = DEFAULT_CLASSIFY_BASE_URL
     api_key: str = ""
-    timeout_s: float = 60.0
+    timeout_s: float = DEFAULT_CLASSIFY_TIMEOUT_S
 
 
 class Config(BaseModel):
@@ -130,3 +134,8 @@ def load_config(data_dir: Path, config_file: Path | None = None) -> Config:
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
     return Config.model_validate(raw)
+
+cache = Cachetta(
+    path=DEFAULT_CACHE_DIR,
+    duration=DEFAULT_CACHE_DURATION,
+)

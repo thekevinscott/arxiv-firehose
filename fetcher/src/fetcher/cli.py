@@ -59,7 +59,6 @@ def fetch(
 @app.command("classify")
 def classify(
     data_dir: Path = DataDir,
-    cache_dir: Path = CacheDir,
     config: Optional[Path] = ConfigFile,
     verbose: bool = Verbose,
     limit: Optional[int] = Limit,
@@ -73,7 +72,7 @@ def classify(
     the prior response from disk anyway.
     """
     api.classify(
-        data_dir, cache_dir, config,
+        data_dir, config,
         verbose=verbose, limit=limit, dry_run=dry_run,
     )
 

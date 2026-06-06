@@ -36,6 +36,7 @@ from coaxer import CoaxedPrompt
 
 from ...shared.config import Config
 from ...shared.dirsql_schema import MISSING_PAIRS_SQL, build_app
+from ...shared.llm import llm
 from .coaxed import flag_name, load_coaxed, render_inputs
 from .http import http_classifier
 from .store import write_classification
@@ -44,7 +45,6 @@ from .types import Classifier
 
 def run(
     data_dir: Path,
-    cache_dir: Path,
     config: Config,
     log: logging.Logger,
     *,
@@ -69,8 +69,8 @@ def run(
     the daily cron stays green while the taxonomy is still being
     authored.
 
-    *cache_dir* is the cachetta location the LLM HTTP client writes to.
-    A repeat ``(model, prompt, schema)`` triple serves from disk with
+    The LLM HTTP client caches responses at ``shared.config.cache``;
+    a repeat ``(model, prompt, schema)`` triple serves from disk with
     no network call.
     """
     counts = {"classified": 0, "skipped": 0, "failed": 0}
@@ -91,13 +91,7 @@ def run(
     pairs = asyncio.run(_query_missing_pairs(root))
 
     if classifier is None:
-        classifier = http_classifier(
-            config.classify.model,
-            base_url=config.classify.base_url,
-            api_key=config.classify.api_key or None,
-            timeout_s=config.classify.timeout_s,
-            cache_dir=cache_dir,
-        )
+        classifier = http_classifier(config.classify.model, llm)
 
     log.info(
         "classify start: %d missing pairs, %d categories, model=%s",

@@ -126,7 +126,6 @@ def fetch(
 
 def classify(
     data_dir: Path = DEFAULT_DATA_DIR,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
     config_file: Path | None = None,
     verbose: bool = False,
     limit: int | None = None,
@@ -147,17 +146,17 @@ def classify(
     ``classifications/<cat>.json``; cachetta will serve the prior
     response from disk anyway (no network).
 
-    *cache_dir* is where the cachetta-backed LLM response cache lives
-    (defaults to ``~/.cache/arxiv-firehose``); a repeat ``(model,
-    prompt, schema)`` triple serves from disk with no network call.
-    The cache is the only mechanism that makes a re-run cheap -- there
-    is no in-memory dict, no file-existence shortcut beyond the SQL
-    filter, and no ``--force`` flag.
+    The cachetta-backed LLM response cache lives at
+    ``shared.config.cache`` (``~/.cache/arxiv-firehose``); a repeat
+    ``(model, prompt, schema)`` triple serves from disk with no network
+    call. The cache is the only mechanism that makes a re-run cheap --
+    there is no in-memory dict, no file-existence shortcut beyond the
+    SQL filter, and no ``--force`` flag.
     """
     log = get_logger(data_dir, "classify", verbose)
     cfg = load_config(data_dir, config_file)
     return classify_mod.run(
-        data_dir, cache_dir, cfg, log,
+        data_dir, cfg, log,
         limit=limit, dry_run=dry_run, classifier=classifier,
     )
 
