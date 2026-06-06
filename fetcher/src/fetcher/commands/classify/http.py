@@ -18,30 +18,49 @@ Behaviours that are easy to forget if hand-rolled per call:
   value, so credentials stay out of ``data/config.toml``.
 - **Cachetta-backed response cache.** When ``cache_dir`` is set, the
   exact same ``(model, prompt, schema)`` tuple returns the prior LLM
-  response from disk with no network call. The cache is the only
-  classify-side caching mechanism in fetcher; nothing else holds LLM
-  output in memory or on disk. See ``shared/llm.py``.
+  response from disk with no network call. The decorator inlines a
+  ``path=`` lambda that hashes the three inputs into
+  ``{cache_dir}/llm/{sha}.pkl``. This is the only classify-side
+  caching mechanism in fetcher; nothing else holds LLM output in
+  memory or on disk.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Callable
 
 import httpx
+from cachetta import Cachetta
 from pydantic import BaseModel, ValidationError
 
 from ...shared.config import DEFAULT_CLASSIFY_BASE_URL
-from ...shared.llm import make_llm_cache
 from .types import Classifier, ClassifyError, HttpBackend
 
 API_KEY_ENV = "FETCHER_LLM_API_KEY"
 _RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
 _RETRIES = 3
 _BACKOFF_BASE_S = 0.5  # 0.5s, 1s, 2s
+# A (model, prompt, schema) tuple is deterministic for the LLM's output;
+# cache permanently. Matches the arxiv download cache duration in
+# shared/download.py.
+_CACHE_DURATION = timedelta(days=36500)
+
+
+def _cache_key(model: str, prompt: str, schema_json: str) -> str:
+    """sha256 over the three inputs joined by a NUL byte, truncated to 16
+    hex chars. NUL prevents concatenation collisions (impossible inside a
+    JSON serialization or a model tag); 16 chars = 64 bits = collision-free
+    in the ~10^7-cell space a daily classify run touches over years."""
+    body = b"\0".join(
+        [model.encode("utf-8"), prompt.encode("utf-8"), schema_json.encode("utf-8")]
+    )
+    return hashlib.sha256(body).hexdigest()[:16]
 
 
 def _resolve_api_key(api_key: str | None) -> str | None:
@@ -162,7 +181,19 @@ def http_classifier(
         return content
 
     if cache_dir is not None:
-        send = make_llm_cache(cache_dir)(send)
+        # Inline the cachetta decorator: lambda receives send's args, computes
+        # the on-disk path. The condition predicate rejects empty content so
+        # cachetta only persists usable JSON; the JSON-parse guard inside
+        # send raises before return, so transient failures and malformed
+        # bodies never reach disk either.
+        cache = Cachetta(
+            path=lambda model_, prompt, schema_json: (
+                cache_dir / "llm" / f"{_cache_key(model_, prompt, schema_json)}.pkl"
+            ),
+            duration=_CACHE_DURATION,
+            condition=lambda content: isinstance(content, str) and content.strip() != "",
+        )
+        send = cache(send)
 
     def call(prompt: str, schema: type[BaseModel]) -> BaseModel:
         # sort_keys keeps the cache key stable across runs even if
