@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-06-01T20:49:57.949888273Z"
+exclude-newer = "2026-06-05T20:28:18.671356761Z"
 exclude-newer-span = "P3D"
 
 [[package]]
@@ -228,9 +228,8 @@ wheels = [
 
 [[package]]
 name = "cachetta"
-version = "0.6.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/02/a7779a4feedc8c222e717a0ca5036f4b26ffbc654c1e00c7dfbf78a8cd3d/cachetta-0.6.3.tar.gz", hash = "sha256:7a8a166f44e8c4374aceec39957508dbe657f1615f2774e31844f71886b04004", size = 31794, upload-time = "2026-04-28T13:21:12.881Z" }
+version = "0.0.0+local"
+source = { git = "https://github.com/thekevinscott/cachetta?subdirectory=packages%2Fpython#1214a018d4ba2022eb0765169c7719854e6d4e46" }
 
 [[package]]
 name = "certifi"
@@ -613,7 +612,7 @@ dev = [
 requires-dist = [
     { name = "arxiv2markdown", specifier = "~=0.1.0" },
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.34" },
-    { name = "cachetta", specifier = ">=0.6.3" },
+    { name = "cachetta", git = "https://github.com/thekevinscott/cachetta?subdirectory=packages%2Fpython" },
     { name = "coaxer", specifier = ">=0.3.13,<0.4" },
     { name = "dirsql", specifier = ">=0.3.12" },
     { name = "feedparser", specifier = ">=6.0" },

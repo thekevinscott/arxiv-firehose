@@ -17,7 +17,6 @@ from fetcher.shared.download import (
     _looks_like_feed,
     _looks_like_html,
     _looks_like_paper,
-    _with_retry,
     make_downloader,
     make_feed_fetcher,
     make_html_fetcher,
@@ -231,44 +230,3 @@ def describe__is_retryable():
 
     def it_does_not_retry_an_unrelated_exception():
         assert _is_retryable(ValueError("nope")) is False
-
-
-def describe__with_retry():
-    def it_returns_on_the_first_success():
-        assert _with_retry(lambda: "ok", sleep=lambda _s: None) == "ok"
-
-    def it_succeeds_after_two_retryable_failures():
-        attempts = []
-
-        def flaky():
-            attempts.append(1)
-            if len(attempts) < 3:
-                raise _status_error(503)
-            return "ok"
-
-        slept = []
-        assert _with_retry(flaky, sleep=slept.append) == "ok"
-        assert len(attempts) == 3
-        assert slept == [1, 2]  # backoff before retries 2 and 3
-
-    def it_gives_up_after_the_attempt_limit():
-        attempts = []
-
-        def always_503():
-            attempts.append(1)
-            raise _status_error(503)
-
-        with pytest.raises(httpx.HTTPStatusError):
-            _with_retry(always_503, attempts=3, sleep=lambda _s: None)
-        assert len(attempts) == 3
-
-    def it_reraises_a_non_retryable_immediately():
-        attempts = []
-
-        def always_404():
-            attempts.append(1)
-            raise _status_error(404)
-
-        with pytest.raises(httpx.HTTPStatusError):
-            _with_retry(always_404, sleep=lambda _s: None)
-        assert len(attempts) == 1  # no retry on a 404

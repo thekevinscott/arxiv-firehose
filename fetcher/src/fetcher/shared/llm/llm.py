@@ -2,8 +2,7 @@
 
 One module-level ``LLM`` singleton; no per-call construction. The
 constructor takes no args and reads everything it needs from
-``shared.config`` (cache, endpoint defaults) and the environment
-(``FETCHER_LLM_API_KEY``).
+``shared.config`` (cache, endpoint defaults).
 
 A single instance owns three things callers shouldn't re-establish per
 request:
@@ -23,29 +22,18 @@ The endpoint shape is the de-facto cross-vendor standard: Ollama
 LiteLLM gateways all accept the same request and constrain output via
 ``response_format.json_schema``.
 
-Test isolation works by monkeypatching ``shared.config.cache`` and (for
-network avoidance) ``shared.llm.llm.build_default_backend`` *before*
-constructing the ``LLM``.
 """
 
 from __future__ import annotations
 
 import json
-import os
-from datetime import timedelta
 
 import httpx
 
 from ..build_default_backend import build_default_backend
-from ..hash import hash
+from ..config import cache
 
-API_KEY_ENV = "FETCHER_LLM_API_KEY"
-
-# A (model, prompt, schema) tuple is deterministic for a temperature-0
-# decode and a useful key at higher temperatures (caching repeats is the
-# explicit goal). Cache permanently; the key already encodes every input
-# that could legitimately invalidate.
-_LLM_CACHE_DURATION = timedelta(days=36500)
+llm_cache = cache / "llm"
 
 
 class LLMError(Exception):
@@ -70,41 +58,16 @@ class LLM:
         from ..config import (
             DEFAULT_CLASSIFY_BASE_URL,
             DEFAULT_CLASSIFY_TIMEOUT_S,
-            cache,
         )
 
         self.url = DEFAULT_CLASSIFY_BASE_URL.rstrip("/") + "/chat/completions"
         self.timeout_s = DEFAULT_CLASSIFY_TIMEOUT_S
         self.headers = {"content-type": "application/json"}
-        api_key = os.environ.get(API_KEY_ENV) or None
-        if api_key:
-            self.headers["authorization"] = f"Bearer {api_key}"
 
         client = httpx.Client(timeout=self.timeout_s)
         self._backend = build_default_backend(self.url, self.headers, client)
 
-        # The decorator-call syntax `cache(path=..., ...)(fn)` is exactly
-        # `@cache(path=..., ...)` -- cachetta's __call__(**kwargs) returns
-        # a configured copy that wraps `fn` when applied. Applied here in
-        # __init__ instead of at class definition so the lambda can close
-        # over the per-instance `cache` reference (instance state is not
-        # visible at class-definition time).
-        #
-        # The lambda receives the method's positional args verbatim via
-        # *args/**kwargs and digests them with shared.hash.hash (sha256-
-        # based, deterministic across processes, unlike Python's builtin
-        # `hash()`). The condition predicate rejects empty content so
-        # cachetta only persists usable strings; the JSON-parse guard
-        # inside the method raises before return, so transient failures
-        # and malformed bodies never reach disk.
-        self.send_chat_completion = cache(
-            path=lambda *args, **kwargs: (
-                cache.path / "llm" / f"{hash(*args, **kwargs)}.pkl"
-            ),
-            duration=_LLM_CACHE_DURATION,
-            condition=lambda content: isinstance(content, str) and content.strip() != "",
-        )(self.send_chat_completion)
-
+    @llm_cache(hashed=True)
     def send_chat_completion(self, model: str, prompt: str, schema_json: str) -> str:
         """POST one chat-completion request; return the content string.
 

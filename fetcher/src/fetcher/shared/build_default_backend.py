@@ -5,16 +5,18 @@ the LLM uses for byte-fetching. ``build_default_backend`` wraps an
 ``httpx.Client`` with retry+backoff on transient failures; tests inject
 a fake to skip the network entirely.
 
-The retry policy lives here so a test can monkeypatch ``_BACKOFF_BASE_S``
-to zero without touching the LLM module.
+The retry policy lives here so a test can patch ``_BACKOFF_BASE_S`` to
+zero without touching the LLM module. Retry mechanics are shared with
+``shared.download`` via ``shared.retry.with_retry``.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Callable
 
 import httpx
+
+from .retry import with_retry
 
 # (payload_json, timeout_s) -> response_json. Default backend is httpx-
 # backed with retries; tests inject a fake.
@@ -27,6 +29,13 @@ _RETRIES = 3
 _BACKOFF_BASE_S = 0.5  # 0.5s, 1s, 2s
 
 
+def _is_retryable(exc: Exception) -> bool:
+    """Status in ``_RETRY_STATUS`` or any transport error."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _RETRY_STATUS
+    return isinstance(exc, httpx.TransportError)
+
+
 def build_default_backend(
     url: str, headers: dict[str, str], client: httpx.Client
 ) -> HttpBackend:
@@ -37,23 +46,16 @@ def build_default_backend(
     backend.
     """
     def send(payload: dict, timeout: float) -> dict:
-        last_exc: Exception | None = None
-        for attempt in range(_RETRIES):
-            try:
-                r = client.post(url, json=payload, headers=headers, timeout=timeout)
-            except httpx.HTTPError as exc:
-                last_exc = exc
-            else:
-                if r.status_code < 400:
-                    return r.json()
-                if r.status_code not in _RETRY_STATUS:
-                    r.raise_for_status()  # non-retryable -> bubble up
-                last_exc = httpx.HTTPStatusError(
-                    f"{r.status_code} from LLM backend", request=r.request, response=r,
-                )
-            if attempt < _RETRIES - 1:
-                time.sleep(_BACKOFF_BASE_S * (2 ** attempt))
-        assert last_exc is not None
-        raise last_exc
+        def attempt() -> dict:
+            r = client.post(url, json=payload, headers=headers, timeout=timeout)
+            r.raise_for_status()  # raises HTTPStatusError on >=400
+            return r.json()
+
+        return with_retry(
+            attempt,
+            is_retryable=_is_retryable,
+            attempts=_RETRIES,
+            base=_BACKOFF_BASE_S,
+        )
 
     return send

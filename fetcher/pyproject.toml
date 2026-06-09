@@ -37,6 +37,9 @@ build-backend = "uv_build"
 source-exclude = ["**/*_test.py", "**/test_*.py", "**/conftest.py"]
 wheel-exclude = ["**/*_test.py", "**/test_*.py", "**/conftest.py"]
 
+[tool.uv.sources]
+cachetta = { git = "https://github.com/thekevinscott/cachetta", subdirectory = "packages/python" }
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

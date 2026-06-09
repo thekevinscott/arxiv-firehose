@@ -6,8 +6,8 @@ JSON, and converts ``LLMError`` (generic) into ``ClassifyError``
 (classify's surface).
 
 Everything substantive -- HTTP, retries, pooling, cachetta-backed
-response cache, api_key resolution -- lives in ``shared.llm``. This
-module exists so classify can:
+response cache -- lives in ``shared.llm``. This module exists so
+classify can:
 
 - bind a single model name to a Classifier (callers don't thread
   ``model`` through every ``call``);
@@ -36,9 +36,9 @@ def http_classifier(model: str, llm: LLM) -> Classifier:
     Internally that POSTs to *llm*'s OpenAI-compatible endpoint, with
     transparent retries and disk caching handled inside ``LLM``.
 
-    *llm* carries every connection-time concern (base_url, api_key,
-    timeout, cache, backend). Callers build one ``LLM`` per process and
-    pass it here for each (model, category) Classifier they need; the
+    *llm* carries every connection-time concern (base_url, timeout,
+    cache, backend). Callers build one ``LLM`` per process and pass it
+    here for each (model, category) Classifier they need; the
     underlying httpx.Client and cache are shared across them.
     """
     def call(prompt: str, schema: type[BaseModel]) -> BaseModel:

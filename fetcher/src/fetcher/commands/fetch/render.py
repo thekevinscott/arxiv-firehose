@@ -24,6 +24,7 @@ from pathlib import Path
 
 import httpx
 
+from ...shared.atomic_write import atomic_write_text
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter, _is_substantial
 from ...shared.download import Transport, make_downloader, make_html_fetcher
@@ -44,10 +45,7 @@ def _http_error_summary(exc: Exception) -> str:
 
 def _write_markdown(md: str, dest: Path) -> int:
     """Atomically write markdown *md* into the data folder. Returns char count."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".part")
-    tmp.write_text(md, encoding="utf-8")
-    tmp.rename(dest)
+    atomic_write_text(dest, md)
     return len(md)
 
 

@@ -34,6 +34,7 @@ from typing import Any
 
 from coaxer import CoaxedPrompt
 
+from ...shared.atomic_write import atomic_write_json
 from ...shared.config import Config
 from ...shared.dirsql_schema import MISSING_PAIRS_SQL, build_app
 from ...shared.llm import llm
@@ -137,12 +138,7 @@ def _materialize_categories(
             "category_id": cat_id,
             "prompts_dir": str(Path(coaxed._path).resolve()),
         }
-        dest = cats_dir / f"{cat_id}.json"
-        tmp = dest.with_name(dest.name + ".part")
-        tmp.write_text(
-            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
-        )
-        tmp.rename(dest)
+        atomic_write_json(cats_dir / f"{cat_id}.json", payload)
 
 
 async def _query_missing_pairs(root: Path) -> list[tuple[str, str]]:

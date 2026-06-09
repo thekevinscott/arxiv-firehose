@@ -21,10 +21,9 @@ DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
 DEFAULT_CACHE_DURATION = timedelta(days=365)
 
 # Default OpenAI-compatible LLM endpoint for classify. Points at a local
-# Ollama; override in config.toml's [classify] block to swap in vLLM,
-# llama.cpp, OpenAI, or any compatible gateway. Lives here as a constant
-# so http_classifier's kwarg default and ClassifyConfig stay in lockstep
-# -- single source of truth for the URL.
+# Ollama. Not user-configurable -- the LLM client reads these constants
+# directly. If you need to point at vLLM, llama.cpp, OpenAI, or another
+# compatible gateway, edit these values.
 DEFAULT_CLASSIFY_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_CLASSIFY_TIMEOUT_S = 60.0
 
@@ -68,13 +67,10 @@ backfill_days = 0
 # disables classify cleanly (the daily cron stays green while labels are
 # still being authored).
 prompts_dirs = []
-# OpenAI-compatible /v1/chat/completions endpoint and the model tag it
-# serves. The default points at a local Ollama; swap base_url + model to
-# point at vLLM, llama.cpp, OpenAI, or any other compatible gateway.
+# Model tag served by the OpenAI-compatible endpoint (see
+# DEFAULT_CLASSIFY_BASE_URL in shared/config.py). Defaults to a local
+# Ollama tag; change to whatever your gateway serves.
 model = "phi4:14b"
-base_url = "http://localhost:11434/v1"
-api_key = ""
-timeout_s = 60.0
 """
 
 
@@ -101,9 +97,6 @@ class IngestConfig(BaseModel):
 class ClassifyConfig(BaseModel):
     prompts_dirs: list[str] = Field(default_factory=list)
     model: str = "phi4:14b"
-    base_url: str = DEFAULT_CLASSIFY_BASE_URL
-    api_key: str = ""
-    timeout_s: float = DEFAULT_CLASSIFY_TIMEOUT_S
 
 
 class Config(BaseModel):

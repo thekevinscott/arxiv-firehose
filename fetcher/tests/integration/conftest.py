@@ -177,8 +177,6 @@ def data_dir_classify(data_dir: Path, prompts_dirs: list[Path]) -> Path:
         "\n[classify]\n"
         f"prompts_dirs = [{paths}]\n"
         'model = "test-model"\n'
-        'base_url = "http://localhost:11434/v1"\n'
-        "timeout_s = 60.0\n"
     )
     (data_dir / "config.toml").write_text(cfg)
     return data_dir

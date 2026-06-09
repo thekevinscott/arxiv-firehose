@@ -25,6 +25,8 @@ path or `cd` as its own call.
 
 ## Testing
 
+Never monkey patch.
+
 ### Red/Green development
 
 Follow **red/green** (test-first) methodology:

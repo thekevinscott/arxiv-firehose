@@ -19,10 +19,12 @@ from __future__ import annotations
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable
 
 import httpx
 from cachetta import Cachetta
+
+from .retry import with_retry
 
 # A transport turns a URL into bytes. The cachetta layer sits above it; a
 # transport is only ever called on a genuine cache miss.
@@ -80,9 +82,6 @@ def _rate_limit() -> None:
     _last_request = time.monotonic()
 
 
-_T = TypeVar("_T")
-
-
 def _is_retryable(exc: Exception) -> bool:
     """True if *exc* is worth retrying: a transport error or a 5xx response.
 
@@ -92,27 +91,6 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code >= 500
     return isinstance(exc, httpx.TransportError)
-
-
-def _with_retry(
-    fn: Callable[[], _T],
-    *,
-    attempts: int = 3,
-    sleep: Callable[[float], None] = time.sleep,
-) -> _T:
-    """Call *fn*, retrying a retryable failure with exponential backoff.
-
-    Backoff is 1s, 2s, 4s, ... before each retry. A non-retryable exception is
-    re-raised immediately; a retryable one is re-raised after *attempts* tries.
-    """
-    for i in range(attempts):
-        try:
-            return fn()
-        except Exception as exc:  # noqa: BLE001
-            if not _is_retryable(exc) or i == attempts - 1:
-                raise
-            sleep(2**i)
-    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _get_once(url: str, timeout: float) -> bytes:
@@ -135,7 +113,7 @@ def real_transport(url: str, timeout: float) -> bytes:
     incurred only on a real network call -- never on a cachetta hit. A
     transient failure (5xx or a transport error) is retried with backoff.
     """
-    return _with_retry(lambda: _get_once(url, timeout))
+    return with_retry(lambda: _get_once(url, timeout), is_retryable=_is_retryable)
 
 
 def _cache_path(cache_dir: Path, url: str) -> Path:
