@@ -47,9 +47,9 @@ def _classification(data_dir: Path, arxiv_id: str, cat: str) -> dict:
 
 def describe_classify():
     def it_writes_one_file_per_paper_per_category(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         counts = classify(data_dir_classify, classifier=fake_classifier)
 
@@ -64,9 +64,9 @@ def describe_classify():
                 assert "classified_at" in payload
 
     def it_passes_the_abstract_through_to_the_classifier(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         classify(data_dir_classify, classifier=fake_classifier)
 
@@ -81,9 +81,9 @@ def describe_classify():
             assert _classification(data_dir_classify, pid, "is_about_ml")["output"] is False
 
     def it_only_classifies_missing_pairs(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         # Pre-seed one pair to look "already done" -- it must NOT appear
         # in the dirsql missing-pairs query, so the classifier sees one
         # fewer call and the seeded file is left untouched.
@@ -99,9 +99,9 @@ def describe_classify():
         assert _classification(data_dir_classify, "2401.00001", "is_about_ml")["model"] == "seeded"
 
     def it_no_ops_when_every_pair_is_already_classified(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         classify(data_dir_classify, classifier=fake_classifier)
 
         again = classify(data_dir_classify, classifier=fake_classifier)
@@ -112,13 +112,13 @@ def describe_classify():
         assert again == {"classified": 0, "skipped": 0, "failed": 0}
 
     def it_reclassifies_a_pair_after_its_file_is_deleted(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
         # The way to "re-run" classify for a pair is to delete its
         # output file. The SQL query then surfaces it again. cachetta
         # serves the LLM response from disk so the re-classify costs
         # nothing at the network layer.
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         classify(data_dir_classify, classifier=fake_classifier)
 
         target = _classification_path(data_dir_classify, "2401.00001", "is_about_markdown")
@@ -131,13 +131,13 @@ def describe_classify():
         assert payload["output"] is True  # 00001 still says "markdown"
 
     def it_no_ops_when_prompts_dirs_is_empty(
-        data_dir, cache_dir, fake_transport, fake_classifier
+        data_dir, arxiv, fake_classifier
     ):
         # Default config.toml from conftest carries no [classify] block,
         # so prompts_dirs defaults to []. classify must return clean
         # zeros and write nothing -- the daily cron stays green while
         # labels are still being authored.
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir)
 
         counts = classify(data_dir, classifier=fake_classifier)
 
@@ -147,13 +147,13 @@ def describe_classify():
         assert "classify: disabled" in _read_classify_log(data_dir)
 
     def it_no_ops_when_every_prompts_dir_is_unbuilt(
-        data_dir, cache_dir, fake_transport, fake_classifier, tmp_path
+        data_dir, arxiv, fake_classifier, tmp_path
     ):
         # Point prompts_dirs at a path with no compiled artifact --
         # classify must log + zero, same as the empty-prompts_dirs case.
         # Keeps the daily cron green while the user is still labeling
         # and compiling prompts.
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir)
         cfg = (data_dir / "config.toml").read_text()
         cfg += (
             "\n[classify]\n"
@@ -170,7 +170,7 @@ def describe_classify():
         assert "classify: disabled" in _read_classify_log(data_dir)
 
     def it_leaves_orphan_classification_files_untouched(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
         # A category that's no longer in prompts_dirs (e.g. dropped from
         # config) may still have a classifications/<old>.json on disk
@@ -178,7 +178,7 @@ def describe_classify():
         # index will NOT carry an entry for it, so the CROSS JOIN does
         # not pair it with any paper; the orphan classification stays
         # untouched and uncounted.
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         orphan = _classification_path(data_dir_classify, "2401.00001", "is_about_dragons")
         orphan.parent.mkdir(parents=True, exist_ok=True)
         orphan.write_text(json.dumps({"output": True, "model": "orphan"}))
@@ -191,12 +191,12 @@ def describe_classify():
         assert json.loads(orphan.read_text())["model"] == "orphan"
 
     def it_writes_a_categories_index_under_root(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
         # The dirsql `categories` table is fed by per-cat index files
         # under <ROOT>/categories/. classify materializes them at the
         # start of each run so dirsql has a table to CROSS JOIN against.
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         classify(data_dir_classify, classifier=fake_classifier)
 
@@ -208,13 +208,13 @@ def describe_classify():
         assert payload["prompts_dir"]  # non-empty pointer back to source
 
     def it_removes_a_category_index_when_its_prompts_dir_is_dropped(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier, tmp_path
+        data_dir_classify, arxiv, fake_classifier, tmp_path
     ):
         # Run once with two categories -- index has both files. Then
         # drop one from config and re-run; the stale index file must
         # be removed so dirsql does not surface (paper, stale-cat)
         # pairs and trigger pointless classifier calls.
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         classify(data_dir_classify, classifier=fake_classifier)
 
         cats_dir = data_dir_classify.parent / "categories"
@@ -241,9 +241,9 @@ def describe_classify():
         assert not (cats_dir / "is_about_markdown.json").exists()
 
     def it_makes_no_writes_on_a_dry_run(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         counts = classify(data_dir_classify, classifier=fake_classifier, dry_run=True)
 
@@ -252,9 +252,9 @@ def describe_classify():
             assert not (data_dir_classify / pid / "classifications").exists()
 
     def it_honors_limit(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         # limit caps the number of (paper, cat) pairs processed, not
         # papers -- the query already orders by (paper, cat), so limit=3
@@ -277,7 +277,7 @@ def describe_classify():
 
 def describe_classify_resilience():
     def it_counts_a_failed_pair_without_aborting(
-        data_dir_classify, cache_dir, fake_transport
+        data_dir_classify, arxiv
     ):
         # An LLM that raises on the first call must mark that pair
         # failed and continue -- never abort the run partway through.
@@ -293,7 +293,7 @@ def describe_classify_resilience():
             return schema(**{field: False})
 
         flaky = Classifier(call=call)
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
 
         counts = classify(data_dir_classify, classifier=flaky)
 
@@ -304,9 +304,9 @@ def describe_classify_resilience():
 
 def describe_classify_logging():
     def it_logs_each_classification_with_its_output(
-        data_dir_classify, cache_dir, fake_transport, fake_classifier
+        data_dir_classify, arxiv, fake_classifier
     ):
-        sync_metadata(data_dir_classify, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir_classify)
         classify(data_dir_classify, classifier=fake_classifier)
 
         log_text = _read_classify_log(data_dir_classify)

@@ -27,10 +27,9 @@ app = typer.Typer(
 )
 
 DataDir = typer.Option(api.DEFAULT_DATA_DIR, "--data-dir", help="Arxiv data directory.")
-CacheDir = typer.Option(
-    api.DEFAULT_CACHE_DIR, "--cache-dir",
-    help="cachetta download cache (kept separate from the data dir).",
-)
+# Cache root is process-wide (shared.config.cache); override its location
+# with the ARXIV_FIREHOSE_CACHE_DIR env var, not a flag. The cache is
+# transparent -- no CLI surface should depend on its layout.
 ConfigFile = typer.Option(None, "--config", help="Override config.toml path.")
 Verbose = typer.Option(False, "--verbose", "-v", help="Debug logging to stderr.")
 Limit = typer.Option(None, "--limit", help="Process at most N items.")
@@ -40,7 +39,6 @@ DryRun = typer.Option(False, "--dry-run", help="Plan only; no network or writes.
 @app.command("fetch")
 def fetch(
     data_dir: Path = DataDir,
-    cache_dir: Path = CacheDir,
     config: Optional[Path] = ConfigFile,
     verbose: bool = Verbose,
     limit: Optional[int] = Limit,
@@ -48,7 +46,7 @@ def fetch(
 ) -> None:
     """Run the daily ingest cycle: sync metadata, then render markdown."""
     result = api.fetch(
-        data_dir, cache_dir, config,
+        data_dir, config,
         verbose=verbose, limit=limit, dry_run=dry_run,
     )
     if not dry_run:

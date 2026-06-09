@@ -28,10 +28,10 @@ def _read_render_log(data_dir):
 
 
 def describe_render_markdown():
-    def it_writes_markdown_from_arxiv_html(data_dir, cache_dir, fake_transport,
+    def it_writes_markdown_from_arxiv_html(data_dir, arxiv,
                                            fake_converter):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        counts = render_markdown(data_dir,
                                  converter=fake_converter)
 
         assert counts["html"] == 1
@@ -39,10 +39,10 @@ def describe_render_markdown():
         assert md.startswith("# Markdown from HTML")
 
     def it_falls_back_to_latex_when_a_paper_has_no_html(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        counts = render_markdown(data_dir,
                                  converter=fake_converter)
 
         assert counts["latex"] == 1
@@ -50,10 +50,10 @@ def describe_render_markdown():
         assert md.startswith("# Markdown from LaTeX")
 
     def it_falls_back_to_pdf_when_a_paper_has_no_html_or_latex(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        counts = render_markdown(data_dir,
                                  converter=fake_converter)
 
         # 2401.00002 has no arxiv HTML and a PDF-only e-print -- the LaTeX
@@ -63,10 +63,10 @@ def describe_render_markdown():
         assert md.startswith("# Markdown from PDF")
 
     def it_marks_a_paper_with_no_markdown_available(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        counts = render_markdown(data_dir,
                                  converter=fake_converter)
 
         # 2401.00004 has no HTML, no e-print and no PDF -- every conversion
@@ -76,10 +76,10 @@ def describe_render_markdown():
         assert not (data_dir / "2401.00004" / "paper.md").exists()
 
     def it_keeps_only_markdown_and_metadata_on_disk(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        render_markdown(data_dir,
                         converter=fake_converter)
 
         for pid in ("2401.00001", "2401.00002", "2401.00003"):
@@ -92,36 +92,36 @@ def describe_render_markdown():
 
 def describe_render_markdown_always_rewrites():
     def it_overwrites_a_corrupted_markdown_file_already_on_disk(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        render_markdown(data_dir,
                         converter=fake_converter)
 
         md = data_dir / "2401.00001" / "paper.md"
         md.write_text("corrupted")  # must not skip a paper that "exists"
 
-        render_markdown(data_dir, cache_dir, transport=fake_transport,
+        render_markdown(data_dir,
                         converter=fake_converter)
 
         assert md.read_text().startswith("# Markdown from HTML")
 
     def it_reuses_cached_content_on_a_rerun(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        first = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        first = render_markdown(data_dir,
                                 converter=fake_converter)
-        after_first = list(fake_transport.calls)
+        after_first = list(arxiv.calls)
 
-        again = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        again = render_markdown(data_dir,
                                 converter=fake_converter)
 
         # The feed, the converted HTML and the e-print/PDF archives that
         # returned 200 are all cached. Only the uncacheable 404s repeat: the
         # /html/ miss for the three HTML-less papers, plus 2401.00004's
         # e-print and PDF misses (it has no representation at all).
-        new_calls = fake_transport.calls[len(after_first):]
+        new_calls = arxiv.calls[len(after_first):]
         assert set(new_calls) == {
             "https://arxiv.org/html/2401.00002v1",
             "https://arxiv.org/html/2401.00003v1",
@@ -132,32 +132,31 @@ def describe_render_markdown_always_rewrites():
         assert again == first
 
     def it_makes_no_request_on_a_dry_run(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        before = list(fake_transport.calls)
+        sync_metadata(data_dir)
+        before = list(arxiv.calls)
 
-        counts = render_markdown(data_dir, cache_dir, dry_run=True,
-                                 transport=fake_transport,
+        counts = render_markdown(data_dir, dry_run=True,
                                  converter=fake_converter)
 
         assert counts["html"] == 0 and counts["latex"] == 0
         assert counts["pdf"] == 0
-        assert fake_transport.calls == before
+        assert arxiv.calls == before
         assert not (data_dir / "2401.00001" / "paper.md").exists()
 
 
 def describe_render_markdown_resilience():
     def it_skips_a_paper_with_corrupt_metadata_and_processes_the_rest(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
+        sync_metadata(data_dir)
         # A folder with an unreadable metadata.json must not abort the run.
         bad = data_dir / "2401.09998"
         bad.mkdir()
         (bad / "metadata.json").write_text("{ not valid json")
 
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        counts = render_markdown(data_dir,
                                  converter=fake_converter)
 
         assert counts["html"] == 1  # the valid HTML paper still converted
@@ -178,14 +177,14 @@ def describe_latex_failures_fall_through_to_pdf():
         "pandoc rejected the LaTeX source (exit 64)",
     ])
     def it_routes_a_latex_valueerror_to_the_pdf_path(
-        data_dir, cache_dir, fake_transport, fake_converter, reason
+        data_dir, arxiv, fake_converter, reason
     ):
         def failing_latex(eprint: bytes) -> str:
             raise ValueError(reason)
 
         converter = dataclasses.replace(fake_converter, latex=failing_latex)
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        counts = render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        counts = render_markdown(data_dir,
                                  converter=converter)
 
         # 2401.00003 has a LaTeX e-print -- normally the LaTeX path. With the
@@ -199,10 +198,10 @@ def describe_latex_failures_fall_through_to_pdf():
 
 def describe_render_markdown_logging():
     def it_logs_a_200_for_a_converted_paper(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        render_markdown(data_dir, cache_dir, transport=fake_transport,
+        sync_metadata(data_dir)
+        render_markdown(data_dir,
                         converter=fake_converter)
 
         log_text = _read_render_log(data_dir)
@@ -210,11 +209,11 @@ def describe_render_markdown_logging():
         assert "tex  2401.00003: HTTP 200" in log_text
 
     def it_logs_a_404_concisely_without_the_mdn_link(
-        data_dir, cache_dir, fake_transport, fake_converter
+        data_dir, arxiv, fake_converter
     ):
-        sync_metadata(data_dir, cache_dir, transport=fake_transport)
-        render_markdown(data_dir, cache_dir, verbose=True,
-                        transport=fake_transport, converter=fake_converter)
+        sync_metadata(data_dir)
+        render_markdown(data_dir, verbose=True,
+                        converter=fake_converter)
 
         # 2401.00002 / 2401.00003 have no arxiv HTML -> a 404 is logged, but
         # without httpx's multi-line MDN documentation link.

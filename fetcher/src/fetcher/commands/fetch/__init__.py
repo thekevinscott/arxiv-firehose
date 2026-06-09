@@ -24,7 +24,6 @@ from pathlib import Path
 
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter
-from ...shared.download import Transport
 from . import render, sync
 
 __all__ = ["render", "run", "sync"]
@@ -32,12 +31,10 @@ __all__ = ["render", "run", "sync"]
 
 def run(
     data_dir: Path,
-    cache_dir: Path,
     config: Config,
     log: logging.Logger,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
 ) -> dict[str, object]:
     """Run the ingest pipeline: sync-metadata then render-markdown.
@@ -50,14 +47,11 @@ def run(
     t0 = time.monotonic()
 
     log.info("=== fetch: sync ===")
-    added, updated = sync.run(
-        data_dir, cache_dir, config, log,
-        limit=limit, dry_run=dry_run, transport=transport,
-    )
+    added, updated = sync.run(data_dir, config, log, limit=limit, dry_run=dry_run)
     log.info("=== fetch: render ===")
     counts = render.run(
-        data_dir, cache_dir, config, log,
-        limit=limit, dry_run=dry_run, transport=transport, converter=converter,
+        data_dir, config, log,
+        limit=limit, dry_run=dry_run, converter=converter,
     )
     log.info("=== fetch: done ===")
 

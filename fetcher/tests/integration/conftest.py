@@ -1,17 +1,29 @@
 """Shared fixtures for the SDK integration tests.
 
-The real httpx network transport is replaced by a fixture-backed fake,
-injected through the SDK's public ``transport=`` parameter -- never by
-monkeypatching a production module (see AGENTS.md).
+The real network is replaced two ways:
+
+- ``arxiv``: a fixture that swaps ``shared.download._http_get`` for a
+  fixture-backed fake, and redirects the three cachetta caches
+  (feeds / papers / html) onto ``tmp_path``. The on-disk cache is
+  real (cachetta is hit, populated, re-read), so tests can prove a
+  rerun avoided the network by inspecting ``arxiv.calls``.
+- ``fake_classifier``: a Classifier wired through the SDK's public
+  ``classifier=`` parameter -- never patched.
+
+No monkeypatching. All redirection uses ``unittest.mock.patch.object``
+through context managers.
 """
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 import pytest
 
 from fetcher.commands.classify import Classifier
+from fetcher.shared import download
 from fetcher.shared.convert import Converter
 
 FIXTURES = Path(__file__).parent / "__fixtures__"
@@ -41,56 +53,62 @@ backfill_days = 0
 """
 
 
-class FakeTransport:
-    """A fixture-backed stand-in for the real, rate-limited httpx transport.
+def _resolve_fixture(url: str) -> Path | None:
+    if "rss.arxiv.org/rss/" in url:
+        category = url.rsplit("/rss/", 1)[1]
+        return FIXTURES / f"rss_{category}.xml"
+    if "/html/" in url:
+        ident = url.rsplit("/html/", 1)[1].replace("/", "_")
+        return FIXTURES / f"html_{ident}.html"
+    if "/pdf/" in url:
+        ident = url.rsplit("/pdf/", 1)[1].replace("/", "_")
+        return FIXTURES / f"pdf_{ident}.pdf"
+    if "/e-print/" in url:
+        ident = url.rsplit("/e-print/", 1)[1].replace("/", "_")
+        targz = FIXTURES / f"eprint_{ident}.tar.gz"
+        return targz if targz.exists() else FIXTURES / f"eprint_{ident}.pdf"
+    return None
 
-    Serves bytes from ``tests/integration/__fixtures__/`` and records every
-    URL requested, so a test can assert exactly which arxiv requests a run
-    would have made -- and, by the absence of a call, that cachetta served a
-    request from disk instead.
-    """
 
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def __call__(self, url: str, timeout: float) -> bytes:
-        self.calls.append(url)
-        path = self._resolve(url)
-        if path is None or not path.exists():
-            # Mirror arxiv: an unknown URL is a 404, raised the way the real
-            # httpx transport raises it (raise_for_status -> HTTPStatusError).
-            request = httpx.Request("GET", url)
-            response = httpx.Response(404, request=request)
-            raise httpx.HTTPStatusError(
-                f"Client error '404 Not Found' for url '{url}'\n"
-                "For more information check: "
-                "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
-                request=request,
-                response=response,
-            )
-        return path.read_bytes()
-
-    @staticmethod
-    def _resolve(url: str) -> Path | None:
-        if "rss.arxiv.org/rss/" in url:
-            category = url.rsplit("/rss/", 1)[1]
-            return FIXTURES / f"rss_{category}.xml"
-        if "/html/" in url:
-            ident = url.rsplit("/html/", 1)[1].replace("/", "_")
-            return FIXTURES / f"html_{ident}.html"
-        if "/pdf/" in url:
-            ident = url.rsplit("/pdf/", 1)[1].replace("/", "_")
-            return FIXTURES / f"pdf_{ident}.pdf"
-        if "/e-print/" in url:
-            ident = url.rsplit("/e-print/", 1)[1].replace("/", "_")
-            targz = FIXTURES / f"eprint_{ident}.tar.gz"
-            return targz if targz.exists() else FIXTURES / f"eprint_{ident}.pdf"
-        return None
+def _raise_404(url: str) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", url)
+    response = httpx.Response(404, request=request)
+    return httpx.HTTPStatusError(
+        f"Client error '404 Not Found' for url '{url}'\n"
+        "For more information check: "
+        "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+        request=request,
+        response=response,
+    )
 
 
 @pytest.fixture
-def fake_transport() -> FakeTransport:
-    return FakeTransport()
+def arxiv(tmp_path):
+    """Stub the network + isolate the cachetta caches in one fixture.
+
+    Yields a namespace with a ``calls`` list -- every URL the production
+    code actually sent through ``_http_get`` (so a cachetta hit doesn't
+    register). Tests use that list to prove a rerun was served from disk.
+
+    Cache redirection mutates the path on the three sibling Cachetta
+    instances declared at module load in ``shared.download``. The
+    ``patch.object`` context restores the original paths on exit so a
+    test can't leak state into another.
+    """
+    calls: list[str] = []
+
+    def fake_http_get(url: str, timeout: float) -> bytes:
+        calls.append(url)
+        path = _resolve_fixture(url)
+        if path is None or not path.exists():
+            raise _raise_404(url)
+        return path.read_bytes()
+
+    with patch.object(download, "_http_get", fake_http_get), \
+         patch.object(download._feed_cache, "path", tmp_path / "feeds"), \
+         patch.object(download._paper_cache, "path", tmp_path / "papers"), \
+         patch.object(download._html_cache, "path", tmp_path / "html"):
+        yield SimpleNamespace(calls=calls)
 
 
 def _fake_latex(eprint: bytes) -> str:
@@ -121,12 +139,6 @@ def data_dir(tmp_path: Path) -> Path:
     d.mkdir()
     (d / "config.toml").write_text(CONFIG_TOML)
     return d
-
-
-@pytest.fixture
-def cache_dir(tmp_path: Path) -> Path:
-    # Deliberately separate from the data dir, and created lazily by cachetta.
-    return tmp_path / "cache"
 
 
 def _write_prompts_artifact(folder: Path, output_name: str) -> Path:

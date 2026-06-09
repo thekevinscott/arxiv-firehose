@@ -2,7 +2,7 @@
 
 Every command is a function here. The CLI (``cli.py``) is a thin typer
 wrapper over these. Each function handles config loading and logger setup
-itself, so a caller only supplies the data/cache directories and options.
+itself, so a caller only supplies the data directory and options.
 
 Two cron-level commands -- ``fetch`` (ingest: sync metadata, then render
 markdown) and ``classify`` (label each paper against a taxonomy) -- plus
@@ -10,9 +10,11 @@ markdown) and ``classify`` (label each paper against a taxonomy) -- plus
 ``render_markdown``) are also exported here for granular use and tests;
 they are not exposed on the CLI.
 
-Network I/O flows through an injectable *transport* (``(url, timeout) ->
-bytes``). The default is the real rate-limited httpx GET; integration tests
-pass a fixture-backed fake. See AGENTS.md.
+Network I/O flows through ``shared.download.fetch_feed`` /
+``fetch_paper`` / ``fetch_html``, each cachetta-cached. Tests stub them
+out with ``unittest.mock.patch.object`` -- no transport seam to thread.
+The cache root is the process-wide ``shared.config.cache``; override its
+location with the ``ARXIV_FIREHOSE_CACHE_DIR`` env var.
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ from .shared.config import (
     load_config,
 )
 from .shared.convert import REAL_CONVERTER, Converter
-from .shared.download import Transport
 from .shared.logsetup import get_logger
 
 __all__ = [
@@ -48,12 +49,10 @@ __all__ = [
 
 def sync_metadata(
     data_dir: Path = DEFAULT_DATA_DIR,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
     config_file: Path | None = None,
     verbose: bool = False,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
 ) -> tuple[int, int]:
     """Fetch RSS metadata for tracked categories; write a folder per paper.
 
@@ -62,45 +61,37 @@ def sync_metadata(
     """
     log = get_logger(data_dir, "sync-metadata", verbose)
     cfg = load_config(data_dir, config_file)
-    return fetch_mod.sync.run(
-        data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, transport=transport,
-    )
+    return fetch_mod.sync.run(data_dir, cfg, log, limit=limit, dry_run=dry_run)
 
 
 def render_markdown(
     data_dir: Path = DEFAULT_DATA_DIR,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
     config_file: Path | None = None,
     verbose: bool = False,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
 ) -> dict[str, int]:
     """Produce a markdown rendering for each known paper.
 
     Returns a counts dict. A stage of ``fetch`` -- callable on its own for
     tests or granular use, not exposed on the CLI. *converter* is a test
-    seam (like *transport*); it defaults to the real arxiv2md/pypandoc
-    converter.
+    seam; it defaults to the real arxiv2md/pypandoc converter.
     """
     log = get_logger(data_dir, "render", verbose)
     cfg = load_config(data_dir, config_file)
     return fetch_mod.render.run(
-        data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, transport=transport, converter=converter,
+        data_dir, cfg, log,
+        limit=limit, dry_run=dry_run, converter=converter,
     )
 
 
 def fetch(
     data_dir: Path = DEFAULT_DATA_DIR,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
     config_file: Path | None = None,
     verbose: bool = False,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
 ) -> dict[str, object]:
     """Run the daily ingest cycle: sync-metadata, then render markdown.
@@ -117,8 +108,8 @@ def fetch(
     log = get_logger(data_dir, "fetch", verbose)
     cfg = load_config(data_dir, config_file)
     result = fetch_mod.run(
-        data_dir, cache_dir, cfg, log,
-        limit=limit, dry_run=dry_run, transport=transport, converter=converter,
+        data_dir, cfg, log,
+        limit=limit, dry_run=dry_run, converter=converter,
     )
     result["status"] = "" if dry_run else status_mod.render(data_dir, config_file)
     return result

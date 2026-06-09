@@ -1,24 +1,23 @@
 """sync-metadata: pull recent paper metadata from arxiv RSS feeds.
 
 Writes one ``metadata.json`` per paper folder. No database -- the filesystem
-is the state. RSS feeds are fetched through the cachetta-backed feed fetcher
-(cached one day), so repeated runs within a day never re-hit arxiv.
+is the state. RSS feeds are fetched through ``shared.download.fetch_feed``
+(cachetta-cached one day), so repeated runs within a day never re-hit arxiv.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
 
 import feedparser
 import httpx
 
+from ...shared import download
+from ...shared.atomic_write import atomic_write_json
 from ...shared.config import Config
-from ...shared.download import Transport, make_feed_fetcher
 from ...shared.paths import id_from_entry_id, metadata_path, parse_id, version_from_entry_id
 
 
@@ -116,10 +115,14 @@ def _parse_entry(entry: feedparser.FeedParserDict) -> PaperRecord | None:
 def collect_records(
     config: Config,
     log: logging.Logger,
-    fetch_feed: Callable[[str], bytes],
     dry_run: bool = False,
 ) -> dict[str, PaperRecord]:
-    """Fetch every tracked feed, dedupe by arxiv_id, merge categories."""
+    """Fetch every tracked feed, dedupe by arxiv_id, merge categories.
+
+    Calls ``download.fetch_feed`` directly: that function is the
+    cachetta-cached seam. Tests patch it (or the underlying ``_http_get``)
+    with ``unittest.mock.patch.object``.
+    """
     records: dict[str, PaperRecord] = {}
     cutoff = None
     if config.ingest.backfill_days > 0:
@@ -130,7 +133,7 @@ def collect_records(
             log.info("[dry-run] would fetch feed for %s", category)
             continue
         try:
-            content = fetch_feed(category)  # cached 1 day
+            content = download.fetch_feed(category)  # cached 1 day
         except httpx.HTTPError as exc:
             log.error("feed fetch failed for %s: %s", category, exc)
             continue
@@ -157,19 +160,16 @@ def collect_records(
 
 def run(
     data_dir: Path,
-    cache_dir: Path,
     config: Config,
     log: logging.Logger,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
 ) -> tuple[int, int]:
     """Execute sync-metadata. Returns (added, updated) folder counts."""
     now = datetime.now(timezone.utc).isoformat()
     log.info("sync-metadata start: categories=%s", config.categories.include)
 
-    fetch_feed = make_feed_fetcher(cache_dir, transport)
-    records = collect_records(config, log, fetch_feed, dry_run=dry_run)
+    records = collect_records(config, log, dry_run=dry_run)
     items = list(records.values())
     if limit is not None:
         items = items[:limit]
@@ -182,21 +182,19 @@ def run(
     for rec in items:
         meta_file = metadata_path(data_dir, rec.arxiv_id)
         is_new = not meta_file.exists()
-        meta_file.parent.mkdir(parents=True, exist_ok=True)
-        meta_file.write_text(json.dumps(rec.to_metadata(now), indent=2) + "\n")
+        atomic_write_json(meta_file, rec.to_metadata(now))
         if is_new:
             added += 1
             log.debug("added %s", rec.arxiv_id)
         else:
             updated += 1
 
-    summary = {
+    atomic_write_json(data_dir / "last_sync.json", {
         "finished_at": now,
         "categories": config.categories.include,
         "papers_added": added,
         "papers_updated": updated,
-    }
-    (data_dir / "last_sync.json").write_text(json.dumps(summary, indent=2) + "\n")
+    })
 
     log.info("sync-metadata done: added=%d updated=%d", added, updated)
     return (added, updated)

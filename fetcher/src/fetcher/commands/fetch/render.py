@@ -24,10 +24,10 @@ from pathlib import Path
 
 import httpx
 
+from ...shared import download
 from ...shared.atomic_write import atomic_write_text
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter, _is_substantial
-from ...shared.download import Transport, make_downloader, make_html_fetcher
 from ...shared.paths import iter_paper_dirs, markdown_path
 
 
@@ -50,7 +50,7 @@ def _write_markdown(md: str, dest: Path) -> int:
 
 
 def _markdown_from_html(
-    fetch_html, url: str, converter: Converter, log: logging.Logger, arxiv_id: str
+    url: str, converter: Converter, log: logging.Logger, arxiv_id: str
 ) -> str | None:
     """Fetch arxiv HTML and convert it. None if no usable HTML/markdown.
 
@@ -58,7 +58,7 @@ def _markdown_from_html(
     logged quietly -- the caller falls back to the LaTeX path.
     """
     try:
-        html = fetch_html(url)
+        html = download.fetch_html(url)
     except httpx.HTTPStatusError as exc:
         log.debug("html %s: %s", arxiv_id, _http_error_summary(exc))
         return None
@@ -78,11 +78,11 @@ def _markdown_from_html(
 
 
 def _markdown_from_latex(
-    download, url: str, converter: Converter, log: logging.Logger, arxiv_id: str
+    url: str, converter: Converter, log: logging.Logger, arxiv_id: str
 ) -> str | None:
     """Fetch the LaTeX e-print archive and convert it. None if it yields none."""
     try:
-        body = download(url)
+        body = download.fetch_paper(url)
     except httpx.HTTPError as exc:
         log.debug("tex  %s: %s", arxiv_id, _http_error_summary(exc))
         return None
@@ -103,7 +103,7 @@ def _markdown_from_latex(
 
 
 def _markdown_from_pdf(
-    download, url: str, converter: Converter, log: logging.Logger, arxiv_id: str
+    url: str, converter: Converter, log: logging.Logger, arxiv_id: str
 ) -> str | None:
     """Fetch the paper's PDF and convert it -- the last-resort path.
 
@@ -112,7 +112,7 @@ def _markdown_from_pdf(
     returns None; a thin or failed render still can.
     """
     try:
-        body = download(url)
+        body = download.fetch_paper(url)
     except httpx.HTTPError as exc:
         log.warning("pdf  %s: %s", arxiv_id, _http_error_summary(exc))
         return None
@@ -130,12 +130,10 @@ def _markdown_from_pdf(
 
 def run(
     data_dir: Path,
-    cache_dir: Path,
     config: Config,
     log: logging.Logger,
     limit: int | None = None,
     dry_run: bool = False,
-    transport: Transport | None = None,
     converter: Converter = REAL_CONVERTER,
 ) -> dict[str, int]:
     """Execute fetch. Returns a counts dict."""
@@ -147,10 +145,8 @@ def run(
               "skipped": 0}
     processed = 0
 
-    log.info("render start: %d papers known, cache=%s, latex_fallback=%s",
-             len(paper_dirs), cache_dir, config.fetch.latex_fallback)
-    fetch_html = make_html_fetcher(cache_dir, transport)
-    download = make_downloader(cache_dir, transport)
+    log.info("render start: %d papers known, latex_fallback=%s",
+             len(paper_dirs), config.fetch.latex_fallback)
 
     for pd in paper_dirs:
         if limit is not None and processed >= limit:
@@ -177,15 +173,13 @@ def run(
         try:
             # Primary: arxiv native HTML. Fallbacks, in order: the LaTeX
             # e-print source, then the PDF.
-            md = _markdown_from_html(fetch_html, html_url, converter, log, arxiv_id)
+            md = _markdown_from_html(html_url, converter, log, arxiv_id)
             source = "html"
             if md is None and config.fetch.latex_fallback:
-                md = _markdown_from_latex(
-                    download, source_url, converter, log, arxiv_id
-                )
+                md = _markdown_from_latex(source_url, converter, log, arxiv_id)
                 source = "latex"
             if md is None and config.fetch.pdf_fallback:
-                md = _markdown_from_pdf(download, pdf_url, converter, log, arxiv_id)
+                md = _markdown_from_pdf(pdf_url, converter, log, arxiv_id)
                 source = "pdf"
 
             if md is not None:

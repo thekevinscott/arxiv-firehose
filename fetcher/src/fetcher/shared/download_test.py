@@ -1,112 +1,29 @@
-"""Unit tests for cache-path derivation and transport-injected downloading.
+"""Unit tests for the body-shape predicates and the retry classifier.
 
-These never touch the network: the downloader's transport is a plain
-in-test callable, injected through ``make_downloader``'s public parameter --
-no monkeypatching (see AGENTS.md).
+The cachetta-backed ``fetch_feed`` / ``fetch_paper`` / ``fetch_html``
+functions are exercised through their integration callers (sync, render)
+with ``unittest.mock.patch.object`` on ``_http_get`` -- cachetta itself
+has its own test suite, no point duplicating it here.
 """
 
-import pickle
-from pathlib import Path
-
 import httpx
-import pytest
 
 from fetcher.shared.download import (
-    _cache_path,
     _is_retryable,
     _looks_like_feed,
     _looks_like_html,
     _looks_like_paper,
-    make_downloader,
-    make_feed_fetcher,
-    make_html_fetcher,
 )
 
 
 def _status_error(code: int) -> httpx.HTTPStatusError:
-    """Build an HTTPStatusError carrying *code*, as raise_for_status would."""
     request = httpx.Request("GET", "https://arxiv.org/x")
     response = httpx.Response(code, request=request)
     return httpx.HTTPStatusError(f"HTTP {code}", request=request, response=response)
 
-CACHE = Path("/cache")
 
 _GZIP_MAGIC = b"\x1f\x8b"
 _HTML = b"<!DOCTYPE html><html><body>503 Service Unavailable</body></html>"
-
-
-def describe_cache_path():
-    def it_maps_a_pdf_url():
-        assert _cache_path(CACHE, "https://arxiv.org/pdf/2401.12345v1") == (
-            CACHE / "pdf" / "2401.12345v1.pkl"
-        )
-
-    def it_maps_an_eprint_url():
-        assert _cache_path(CACHE, "https://arxiv.org/e-print/2401.12345") == (
-            CACHE / "eprint" / "2401.12345.pkl"
-        )
-
-    def it_maps_an_html_url():
-        assert _cache_path(CACHE, "https://arxiv.org/html/2401.12345v1") == (
-            CACHE / "html" / "2401.12345v1.pkl"
-        )
-
-    def it_slugifies_a_legacy_id():
-        assert _cache_path(CACHE, "https://arxiv.org/e-print/cs/0501001") == (
-            CACHE / "eprint" / "cs_0501001.pkl"
-        )
-
-
-def describe_make_downloader():
-    def it_calls_the_injected_transport_on_a_miss(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return b"%PDF-bytes"
-
-        download = make_downloader(tmp_path / "cache", transport)
-        assert download("https://arxiv.org/pdf/2401.00001v1") == b"%PDF-bytes"
-        assert calls == ["https://arxiv.org/pdf/2401.00001v1"]
-
-    def it_serves_a_repeat_call_from_cache_without_the_transport(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return b"%PDF-bytes"
-
-        download = make_downloader(tmp_path / "cache", transport)
-        url = "https://arxiv.org/pdf/2401.00002v1"
-        download(url)
-        download(url)  # second call must be a cache hit
-        assert calls == [url]  # transport invoked exactly once
-
-    def it_reads_a_prewarmed_cache_file_without_the_transport(tmp_path):
-        cache_dir = tmp_path / "cache"
-        url = "https://arxiv.org/pdf/2401.99999v1"
-        target = _cache_path(cache_dir, url)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(pickle.dumps(b"%PDF-cached"))
-
-        def exploding_transport(url, timeout):
-            raise AssertionError("transport must not be called on a cache hit")
-
-        download = make_downloader(cache_dir, exploding_transport)
-        assert download(url) == b"%PDF-cached"
-
-
-def describe_make_feed_fetcher():
-    def it_requests_the_category_rss_url(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return b"<rss/>"
-
-        fetch_feed = make_feed_fetcher(tmp_path / "cache", transport)
-        assert fetch_feed("cs.LG") == b"<rss/>"
-        assert calls == ["https://rss.arxiv.org/rss/cs.LG"]
 
 
 def describe__looks_like_paper():
@@ -137,37 +54,6 @@ def describe__looks_like_feed():
         assert _looks_like_feed(_HTML) is False
 
 
-def describe_make_downloader_cache_validation():
-    def it_does_not_cache_a_non_paper_body(tmp_path):
-        # arxiv occasionally answers 200 with an HTML error page. That junk
-        # must not be cached, or _write_pdf rejects it forever.
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return _HTML
-
-        download = make_downloader(tmp_path / "cache", transport)
-        url = "https://arxiv.org/pdf/2401.00003v1"
-        download(url)
-        download(url)  # not cached -> transport runs again
-        assert calls == [url, url]
-
-
-def describe_make_feed_fetcher_cache_validation():
-    def it_does_not_cache_a_non_feed_body(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return _HTML
-
-        fetch_feed = make_feed_fetcher(tmp_path / "cache", transport)
-        fetch_feed("cs.LG")
-        fetch_feed("cs.LG")  # not cached -> transport runs again
-        assert len(calls) == 2
-
-
 def describe__looks_like_html():
     def it_accepts_a_doctype_declaration():
         assert _looks_like_html(b"<!DOCTYPE html><html><body>x</body></html>") is True
@@ -186,35 +72,6 @@ def describe__looks_like_html():
 
     def it_rejects_empty_bytes():
         assert _looks_like_html(b"") is False
-
-
-def describe_make_html_fetcher():
-    def it_calls_the_transport_then_serves_a_repeat_from_cache(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return b"<!DOCTYPE html><html><body>paper</body></html>"
-
-        fetch_html = make_html_fetcher(tmp_path / "cache", transport)
-        url = "https://arxiv.org/html/2401.00001v1"
-        assert fetch_html(url).startswith(b"<!DOCTYPE html>")
-        fetch_html(url)  # second call must be a cache hit
-        assert calls == [url]  # transport invoked exactly once
-
-    def it_does_not_cache_a_non_html_body(tmp_path):
-        calls = []
-
-        def transport(url, timeout):
-            calls.append(url)
-            return b"503 Service Unavailable - upstream down"  # plain text, not html
-
-        # An error body that is not HTML must not poison the 100-year cache.
-        fetch_html = make_html_fetcher(tmp_path / "cache", transport)
-        url = "https://arxiv.org/html/2401.00009v1"
-        fetch_html(url)
-        fetch_html(url)
-        assert calls == [url, url]
 
 
 def describe__is_retryable():

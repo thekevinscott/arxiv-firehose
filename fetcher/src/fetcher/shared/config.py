@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -17,7 +18,13 @@ from datetime import timedelta
 # package root, so the default data dir is fetcher/data. This holds only for
 # an editable/in-repo install; a packaged (wheel) install must pass --data-dir.
 DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "arxiv-firehose"
+# Cache root. Honors ``ARXIV_FIREHOSE_CACHE_DIR`` for deployments that store
+# the cache off the home volume (e.g. tower keeps it on /mnt/bertha so a
+# disk swap doesn't lose the 100-year paper bytes).
+DEFAULT_CACHE_DIR = Path(
+    os.environ.get("ARXIV_FIREHOSE_CACHE_DIR")
+    or Path.home() / ".cache" / "arxiv-firehose"
+)
 DEFAULT_CACHE_DURATION = timedelta(days=365)
 
 # Default OpenAI-compatible LLM endpoint for classify. Points at a local

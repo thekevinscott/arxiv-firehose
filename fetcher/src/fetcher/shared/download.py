@@ -1,43 +1,36 @@
-"""Network downloads, cached with cachetta.
+"""arxiv HTTP fetchers, cachetta-cached at the URL level.
 
-Every HTTP GET for a PDF or e-print archive goes through a cachetta-wrapped
-function. The cache lives in its own directory (default ~/.cache/arxiv-firehose),
-separate from the arxiv data dir. arxiv content is immutable for a given paper
-version, so cache entries effectively never expire.
+Three sibling caches keyed by `hash(*args)` (the cachetta `hashed=True`
+shape) sit on top of one rate-limited httpx getter. The on-disk layout is
+``<cache>/feeds/<hash>``, ``<cache>/papers/<hash>``, ``<cache>/html/<hash>``.
+Files are opaque; the seam between caller and bytes is a pure URL.
 
-The rate limiter sits *inside* the wrapped function, so it only sleeps on a
-real network call -- a cache hit costs nothing.
+Conditions reject HTML error pages so a 200-with-junk body never poisons
+the long-lived paper/html caches; the 1-day feed cache rejects HTML for
+the same reason.
 
-The actual byte-fetching is a *transport*: a ``(url, timeout) -> bytes``
-callable. The default transport is the real, rate-limited httpx GET. Tests
-inject a fixture-backed fake transport through the public API instead of
-monkeypatching httpx -- see AGENTS.md.
+The rate limiter lives inside ``_http_get``, so it only sleeps on a real
+network call -- a cachetta hit costs nothing.
 """
 
 from __future__ import annotations
 
 import time
 from datetime import timedelta
-from pathlib import Path
-from typing import Callable
 
 import httpx
-from cachetta import Cachetta
 
+from .config import cache
 from .retry import with_retry
-
-# A transport turns a URL into bytes. The cachetta layer sits above it; a
-# transport is only ever called on a genuine cache miss.
-Transport = Callable[[str, float], bytes]
 
 USER_AGENT = "fetcher/0.1 (+https://github.com/thekevinscott/arxiv-firehose)"
 REQUEST_SLEEP = 3.0  # arxiv politeness floor, seconds
 RSS_URL = "https://rss.arxiv.org/rss/{category}"
 
-# A paper's PDF/source never changes for a fixed version: cache permanently.
-CACHE_DURATION = timedelta(days=36500)
-# The RSS feed is regenerated once per day (after arxiv's daily announcement),
-# so caching it for a day means at most one feed request per category per day.
+# A paper's PDF/source/HTML never changes for a fixed version: cache forever.
+PAPER_CACHE_DURATION = timedelta(days=36500)
+# arxiv regenerates RSS once per day, so caching it a day means at most one
+# feed request per category per day.
 FEED_CACHE_DURATION = timedelta(days=1)
 
 # Module-level: the last-request clock and the rate limiter that reads it are
@@ -49,11 +42,7 @@ _GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _looks_like_paper(body: bytes) -> bool:
-    """True if *body* is a PDF or a gzip archive -- arxiv's two paper formats.
-
-    arxiv sometimes answers 200 with an HTML error page; that is neither, so
-    it fails this check and the cachetta ``condition`` declines to cache it.
-    """
+    """True if *body* is a PDF or a gzip archive -- arxiv's two paper formats."""
     return body[:4] == _PDF_MAGIC or body[:2] == _GZIP_MAGIC
 
 
@@ -64,11 +53,7 @@ def _looks_like_feed(body: bytes) -> bool:
 
 
 def _looks_like_html(body: bytes) -> bool:
-    """True if *body* is an HTML document -- arxiv's native paper rendering.
-
-    Guards the html cache: a plain-text or otherwise non-HTML error body must
-    not be cached for the 100-year paper duration.
-    """
+    """True if *body* is an HTML document -- arxiv's native paper rendering."""
     head = body.lstrip()[:512].lower()
     return head.startswith(b"<!doctype html") or b"<html" in head
 
@@ -93,118 +78,65 @@ def _is_retryable(exc: Exception) -> bool:
     return isinstance(exc, httpx.TransportError)
 
 
-def _get_once(url: str, timeout: float) -> bytes:
-    """A single rate-limited httpx GET against the live arxiv."""
-    _rate_limit()
-    resp = httpx.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        follow_redirects=True,
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    return resp.content
+def _http_get(url: str, timeout: float) -> bytes:
+    """One rate-limited httpx GET against the live arxiv, retried on 5xx /
+    transport errors. Tests patch this function with ``patch.object`` to
+    stub the network out without touching cachetta."""
+    def once() -> bytes:
+        _rate_limit()
+        resp = httpx.get(
+            url,
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.content
+
+    return with_retry(once, is_retryable=_is_retryable)
 
 
-def real_transport(url: str, timeout: float) -> bytes:
-    """The default transport: a rate-limited httpx GET against the live arxiv.
-
-    The 3-second arxiv politeness sleep happens inside ``_get_once``, so it is
-    incurred only on a real network call -- never on a cachetta hit. A
-    transient failure (5xx or a transport error) is retried with backoff.
-    """
-    return with_retry(lambda: _get_once(url, timeout), is_retryable=_is_retryable)
-
-
-def _cache_path(cache_dir: Path, url: str) -> Path:
-    """Map a download URL to an inspectable cache file under *cache_dir*.
-
-    e.g. https://arxiv.org/pdf/2401.12345v1     -> {cache}/pdf/2401.12345v1.pkl
-         https://arxiv.org/e-print/2401.12345   -> {cache}/eprint/2401.12345.pkl
-         https://arxiv.org/html/2401.12345v1    -> {cache}/html/2401.12345v1.pkl
-    """
-    if "/pdf/" in url:
-        kind, ident = "pdf", url.rsplit("/pdf/", 1)[1]
-    elif "/e-print/" in url:
-        kind, ident = "eprint", url.rsplit("/e-print/", 1)[1]
-    elif "/html/" in url:
-        kind, ident = "html", url.rsplit("/html/", 1)[1]
-    else:
-        # Unreachable in practice: PDFs and e-prints are the only URLs routed
-        # here, and RSS uses its own path lambda. Kept as a defensive default.
-        kind, ident = "other", url.rsplit("/", 1)[-1]
-    slug = ident.replace("/", "_") or "index"
-    return cache_dir / kind / f"{slug}.pkl"
+# Three sibling caches under the shared root. ``hashed=True`` treats each
+# subfolder as a bucket and writes one file per arg-set under it. The
+# subfolder also doubles as the namespace -- a paper URL and a feed url
+# can never collide.
+#
+# Overrides are baked onto the sibling itself via ``.copy(...)`` (not via
+# decorator kwargs) so that the decorated function holds a reference to
+# *this* instance -- the one tests redirect with
+# ``patch.object(_feed_cache, "path", tmp_path / ...)``. Passing kwargs
+# at decoration time would call ``replace(self, **kwargs)`` and wrap a
+# distinct copy, defeating the patch.
+_feed_cache = (cache / "feeds").copy(
+    hashed=True,
+    duration=FEED_CACHE_DURATION,
+    condition=lambda body: isinstance(body, bytes) and _looks_like_feed(body),
+)
+_paper_cache = (cache / "papers").copy(
+    hashed=True,
+    duration=PAPER_CACHE_DURATION,
+    condition=lambda body: isinstance(body, bytes) and _looks_like_paper(body),
+)
+_html_cache = (cache / "html").copy(
+    hashed=True,
+    duration=PAPER_CACHE_DURATION,
+    condition=lambda body: isinstance(body, bytes) and _looks_like_html(body),
+)
 
 
-def make_downloader(
-    cache_dir: Path, transport: Transport | None = None
-) -> Callable[[str], bytes]:
-    """Return a ``download(url) -> bytes`` function backed by the cachetta cache.
-
-    A cache hit returns the stored bytes with no network call and no sleep.
-    A cache miss calls *transport* and caches the body. *transport* defaults
-    to the real rate-limited httpx GET; tests pass a fake.
-    """
-    fetch = transport or real_transport
-    cache = Cachetta(
-        path=lambda url: _cache_path(cache_dir, url),
-        duration=CACHE_DURATION,
-        # Cache only a real paper body. An HTML error page served as a 200
-        # must not poison the cache for the 100-year duration.
-        condition=lambda body: isinstance(body, bytes) and _looks_like_paper(body),
-    )
-
-    @cache
-    def download(url: str) -> bytes:
-        return fetch(url, 120.0)
-
-    return download
+@_feed_cache
+def fetch_feed(category: str) -> bytes:
+    """Fetch the arxiv RSS feed for *category*. Cached one day."""
+    return _http_get(RSS_URL.format(category=category), 30.0)
 
 
-def make_html_fetcher(
-    cache_dir: Path, transport: Transport | None = None
-) -> Callable[[str], bytes]:
-    """Return a ``fetch_html(url) -> bytes`` function backed by the cachetta cache.
-
-    arxiv's native HTML for a fixed paper version never changes, so it is
-    cached permanently, like the PDF/e-print bytes. An error body that is not
-    HTML fails the ``condition`` and is not cached. *transport* defaults to
-    the real rate-limited httpx GET; tests pass a fake.
-    """
-    fetch = transport or real_transport
-    cache = Cachetta(
-        path=lambda url: _cache_path(cache_dir, url),
-        duration=CACHE_DURATION,
-        condition=lambda body: isinstance(body, bytes) and _looks_like_html(body),
-    )
-
-    @cache
-    def fetch_html(url: str) -> bytes:
-        return fetch(url, 120.0)
-
-    return fetch_html
+@_paper_cache
+def fetch_paper(url: str) -> bytes:
+    """Fetch a paper body (PDF or gzip e-print archive). Cached ~forever."""
+    return _http_get(url, 120.0)
 
 
-def make_feed_fetcher(
-    cache_dir: Path, transport: Transport | None = None
-) -> Callable[[str], bytes]:
-    """Return a ``fetch_feed(category) -> bytes`` function for arxiv RSS.
-
-    Cached for one day: the feed only regenerates once per day, so repeated
-    runs within a day reuse the cached feed and never touch arxiv. *transport*
-    defaults to the real rate-limited httpx GET; tests pass a fake.
-    """
-    fetch = transport or real_transport
-    cache = Cachetta(
-        path=lambda category: cache_dir / "rss" / f"{category}.pkl",
-        duration=FEED_CACHE_DURATION,
-        # Cache only a real feed body, never an HTML error page.
-        condition=lambda body: isinstance(body, bytes) and _looks_like_feed(body),
-    )
-
-    @cache
-    def fetch_feed(category: str) -> bytes:
-        return fetch(RSS_URL.format(category=category), 30.0)
-
-    return fetch_feed
+@_html_cache
+def fetch_html(url: str) -> bytes:
+    """Fetch arxiv's native HTML rendering of a paper. Cached ~forever."""
+    return _http_get(url, 120.0)
