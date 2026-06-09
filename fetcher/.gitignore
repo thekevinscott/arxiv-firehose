@@ -11,6 +11,9 @@ wheels/
 
 # Test + tooling caches
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Local data: the arxiv paper mirror (generated, not source)
 data/

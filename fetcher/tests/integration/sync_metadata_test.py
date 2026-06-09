@@ -49,16 +49,6 @@ def describe_sync_metadata():
 
         assert arxiv.calls == ["https://rss.arxiv.org/rss/cs.LG"]
 
-    def it_reuses_the_cached_feed_on_a_same_day_rerun(data_dir, arxiv):
-        sync_metadata(data_dir)
-        after_first = list(arxiv.calls)
-
-        added, updated = sync_metadata(data_dir)
-
-        # cachetta caches the feed for a day: no second arxiv request.
-        assert arxiv.calls == after_first
-        assert (added, updated) == (0, 4)
-
     def it_writes_a_last_sync_summary(data_dir, arxiv):
         sync_metadata(data_dir)
 

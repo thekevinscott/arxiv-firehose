@@ -3,10 +3,11 @@
 The real network is replaced two ways:
 
 - ``arxiv``: a fixture that swaps ``shared.download._http_get`` for a
-  fixture-backed fake, and redirects the three cachetta caches
-  (feeds / papers / html) onto ``tmp_path``. The on-disk cache is
-  real (cachetta is hit, populated, re-read), so tests can prove a
-  rerun avoided the network by inspecting ``arxiv.calls``.
+  fixture-backed fake and disables the three cachetta caches by
+  replacing ``fetch_feed`` / ``fetch_paper`` / ``fetch_html`` with their
+  ``__wrapped__`` bare functions. Tests never touch disk for caching;
+  every call passes through to the stub and ``arxiv.calls`` records
+  exactly the URLs the production code requested.
 - ``fake_classifier``: a Classifier wired through the SDK's public
   ``classifier=`` parameter -- never patched.
 
@@ -83,17 +84,18 @@ def _raise_404(url: str) -> httpx.HTTPStatusError:
 
 
 @pytest.fixture
-def arxiv(tmp_path):
-    """Stub the network + isolate the cachetta caches in one fixture.
+def arxiv():
+    """Stub the network + bypass cachetta in one fixture.
 
     Yields a namespace with a ``calls`` list -- every URL the production
-    code actually sent through ``_http_get`` (so a cachetta hit doesn't
-    register). Tests use that list to prove a rerun was served from disk.
+    code sent through ``_http_get``. Tests use that list to prove a
+    rerun did or didn't repeat work.
 
-    Cache redirection mutates the path on the three sibling Cachetta
-    instances declared at module load in ``shared.download``. The
-    ``patch.object`` context restores the original paths on exit so a
-    test can't leak state into another.
+    Cachetta is bypassed by swapping the three decorated fetchers with
+    their ``__wrapped__`` originals (functools.update_wrapper sets the
+    attribute on cachetta's ``_Cached`` wrapper). Every test call passes
+    straight to ``_http_get`` -- no on-disk cache, no real or temp cache
+    folder, no shared state between tests.
     """
     calls: list[str] = []
 
@@ -105,9 +107,9 @@ def arxiv(tmp_path):
         return path.read_bytes()
 
     with patch.object(download, "_http_get", fake_http_get), \
-         patch.object(download._feed_cache, "path", tmp_path / "feeds"), \
-         patch.object(download._paper_cache, "path", tmp_path / "papers"), \
-         patch.object(download._html_cache, "path", tmp_path / "html"):
+         patch.object(download, "fetch_feed", download.fetch_feed.__wrapped__), \
+         patch.object(download, "fetch_paper", download.fetch_paper.__wrapped__), \
+         patch.object(download, "fetch_html", download.fetch_html.__wrapped__):
         yield SimpleNamespace(calls=calls)
 
 

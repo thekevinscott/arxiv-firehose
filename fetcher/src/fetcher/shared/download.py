@@ -96,47 +96,36 @@ def _http_get(url: str, timeout: float) -> bytes:
     return with_retry(once, is_retryable=_is_retryable)
 
 
-# Three sibling caches under the shared root. ``hashed=True`` treats each
-# subfolder as a bucket and writes one file per arg-set under it. The
-# subfolder also doubles as the namespace -- a paper URL and a feed url
-# can never collide.
-#
-# Overrides are baked onto the sibling itself via ``.copy(...)`` (not via
-# decorator kwargs) so that the decorated function holds a reference to
-# *this* instance -- the one tests redirect with
-# ``patch.object(_feed_cache, "path", tmp_path / ...)``. Passing kwargs
-# at decoration time would call ``replace(self, **kwargs)`` and wrap a
-# distinct copy, defeating the patch.
-_feed_cache = (cache / "feeds").copy(
+feed_cache = cache / "feeds"
+paper_cache = cache / "papers"
+html_cache = cache / "html"
+
+
+@feed_cache(
     hashed=True,
     duration=FEED_CACHE_DURATION,
     condition=lambda body: isinstance(body, bytes) and _looks_like_feed(body),
 )
-_paper_cache = (cache / "papers").copy(
-    hashed=True,
-    duration=PAPER_CACHE_DURATION,
-    condition=lambda body: isinstance(body, bytes) and _looks_like_paper(body),
-)
-_html_cache = (cache / "html").copy(
-    hashed=True,
-    duration=PAPER_CACHE_DURATION,
-    condition=lambda body: isinstance(body, bytes) and _looks_like_html(body),
-)
-
-
-@_feed_cache
 def fetch_feed(category: str) -> bytes:
     """Fetch the arxiv RSS feed for *category*. Cached one day."""
     return _http_get(RSS_URL.format(category=category), 30.0)
 
 
-@_paper_cache
+@paper_cache(
+    hashed=True,
+    duration=PAPER_CACHE_DURATION,
+    condition=lambda body: isinstance(body, bytes) and _looks_like_paper(body),
+)
 def fetch_paper(url: str) -> bytes:
     """Fetch a paper body (PDF or gzip e-print archive). Cached ~forever."""
     return _http_get(url, 120.0)
 
 
-@_html_cache
+@html_cache(
+    hashed=True,
+    duration=PAPER_CACHE_DURATION,
+    condition=lambda body: isinstance(body, bytes) and _looks_like_html(body),
+)
 def fetch_html(url: str) -> bytes:
     """Fetch arxiv's native HTML rendering of a paper. Cached ~forever."""
     return _http_get(url, 120.0)

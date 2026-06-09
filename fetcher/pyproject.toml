@@ -47,6 +47,7 @@ exclude-newer-package = { cachetta = "0 days" }
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
     "pytest-describe>=3.1.0",
 ]
 
@@ -57,4 +58,18 @@ testpaths = ["src", "tests"]
 python_files = ["*_test.py", "test_*.py"]
 # pytest-describe nests cases as `it_*` functions inside `describe_*` blocks.
 python_functions = ["test_*", "it_*"]
-addopts = "-ra"
+# Coverage floor: the CI guardrail. Today's number is the floor; raise
+# it (never lower) as gaps close. Source-only -- the _test.py files
+# carry test code, not production code, and would inflate the figure.
+addopts = "-ra --cov=fetcher --cov-fail-under=87 --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/fetcher"]
+omit = ["*/*_test.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

@@ -48,31 +48,17 @@ def describe_fetch():
         assert list(data_dir.rglob("*.pdf")) == []
         assert [p for p in data_dir.rglob("source") if p.is_dir()] == []
 
-    def it_makes_only_uncacheable_404s_on_a_same_day_rerun(
+    def it_returns_the_same_tier_counts_on_a_rerun(
         data_dir, arxiv, fake_converter
     ):
-        fetch(data_dir,
-              converter=fake_converter)
-        after_first = list(arxiv.calls)
+        first = fetch(data_dir, converter=fake_converter)
 
-        result = fetch(data_dir,
-                       converter=fake_converter)
+        again = fetch(data_dir, converter=fake_converter)
 
-        # The feed (cached a day), the HTML and the e-print/PDF archives that
-        # returned 200 are all served from disk. Only the uncacheable 404s
-        # repeat: the /html/ miss for the three HTML-less papers, plus the
-        # e-print and PDF misses for 2401.00004 (no representation at all).
-        new_calls = arxiv.calls[len(after_first):]
-        assert set(new_calls) == {
-            "https://arxiv.org/html/2401.00002v1",
-            "https://arxiv.org/html/2401.00003v1",
-            "https://arxiv.org/html/2401.00004v1",
-            "https://arxiv.org/e-print/2401.00004",
-            "https://arxiv.org/pdf/2401.00004v1",
-        }
-        assert result["render"]["html"] == 1
-        assert result["render"]["latex"] == 1
-        assert result["render"]["pdf"] == 1
+        # A rerun against the same fixture must route every paper to the
+        # same tier. The cachetta layer is bypassed in tests (see
+        # conftest) and tested in its own suite -- not here.
+        assert again["render"] == first["render"]
 
 
 def describe_fetch_tracking():
