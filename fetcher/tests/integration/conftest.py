@@ -3,11 +3,11 @@
 The real network is replaced two ways:
 
 - ``arxiv``: a fixture that swaps ``shared.download._http_get`` for a
-  fixture-backed fake and disables the three cachetta caches by
-  replacing ``fetch_feed`` / ``fetch_paper`` / ``fetch_html`` with their
-  ``__wrapped__`` bare functions. Tests never touch disk for caching;
-  every call passes through to the stub and ``arxiv.calls`` records
-  exactly the URLs the production code requested.
+  fixture-backed fake and disables cachetta globally by routing every
+  ``_Cached.__call__`` straight to the bare wrapped function. Tests
+  never touch disk for caching; every call passes through to the stub
+  and ``arxiv.calls`` records exactly the URLs the production code
+  requested.
 - ``fake_classifier``: a Classifier wired through the SDK's public
   ``classifier=`` parameter -- never patched.
 
@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from cachetta.utils.cache_fn import _Cached
 
 from fetcher.commands.classify import Classifier
 from fetcher.shared import download
@@ -91,10 +92,11 @@ def arxiv():
     code sent through ``_http_get``. Tests use that list to prove a
     rerun did or didn't repeat work.
 
-    Cachetta is bypassed by swapping the three decorated fetchers with
-    their ``__wrapped__`` originals (functools.update_wrapper sets the
-    attribute on cachetta's ``_Cached`` wrapper). Every test call passes
-    straight to ``_http_get`` -- no on-disk cache, no real or temp cache
+    Cachetta is bypassed by patching ``_Cached.__call__`` to dispatch
+    straight to the bare function (stored as ``_fn`` on every cachetta
+    wrapper). One patch covers every cachetta-decorated function in the
+    process -- ``download.fetch_feed`` / ``fetch_paper`` / ``fetch_html``,
+    plus any future cache that lands. No on-disk cache, no temp cache
     folder, no shared state between tests.
     """
     calls: list[str] = []
@@ -106,10 +108,11 @@ def arxiv():
             raise _raise_404(url)
         return path.read_bytes()
 
+    def bypass(self, *args, **kwargs):
+        return self._fn(*args, **kwargs)
+
     with patch.object(download, "_http_get", fake_http_get), \
-         patch.object(download, "fetch_feed", download.fetch_feed.__wrapped__), \
-         patch.object(download, "fetch_paper", download.fetch_paper.__wrapped__), \
-         patch.object(download, "fetch_html", download.fetch_html.__wrapped__):
+         patch.object(_Cached, "__call__", bypass):
         yield SimpleNamespace(calls=calls)
 
 
