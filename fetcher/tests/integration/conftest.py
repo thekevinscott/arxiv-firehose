@@ -2,12 +2,13 @@
 
 The real network is replaced two ways:
 
-- ``arxiv``: a fixture that swaps ``shared.download._http_get`` for a
-  fixture-backed fake and disables cachetta globally by routing every
-  ``_Cached.__call__`` straight to the bare wrapped function. Tests
-  never touch disk for caching; every call passes through to the stub
-  and ``arxiv.calls`` records exactly the URLs the production code
-  requested.
+- ``no_cachetta`` (autouse): cachetta is inert for every integration
+  test. Any cachetta-decorated function dispatches straight to its bare
+  original -- no disk reads, no disk writes, no cache state anywhere.
+  Cachetta has its own test suite; these tests assert fetcher behavior.
+- ``arxiv``: swaps ``shared.download._http_get`` for a fixture-backed
+  fake. ``arxiv.calls`` records exactly the URLs the production code
+  requested (with cachetta inert, every request is observable).
 - ``fake_classifier``: a Classifier wired through the SDK's public
   ``classifier=`` parameter -- never patched.
 
@@ -84,20 +85,32 @@ def _raise_404(url: str) -> httpx.HTTPStatusError:
     )
 
 
+@pytest.fixture(autouse=True)
+def no_cachetta():
+    """Make cachetta inert for every integration test.
+
+    ``_Cached`` is the wrapper cachetta puts around every decorated
+    function; its ``__call__`` is the single dispatch point for the
+    whole library at runtime. Patching it to forward to ``self._fn``
+    (the bare original, stored at decoration time) turns every cache --
+    feeds, papers, html, llm, future ones -- into a passthrough. No
+    disk reads, no disk writes, no cache state anywhere.
+
+    Cachetta's own behavior is covered by its own test suite.
+    """
+    def bypass(self, *args, **kwargs):
+        return self._fn(*args, **kwargs)
+
+    with patch.object(_Cached, "__call__", bypass):
+        yield
+
+
 @pytest.fixture
 def arxiv():
-    """Stub the network + bypass cachetta in one fixture.
-
-    Yields a namespace with a ``calls`` list -- every URL the production
-    code sent through ``_http_get``. Tests use that list to prove a
-    rerun did or didn't repeat work.
-
-    Cachetta is bypassed by patching ``_Cached.__call__`` to dispatch
-    straight to the bare function (stored as ``_fn`` on every cachetta
-    wrapper). One patch covers every cachetta-decorated function in the
-    process -- ``download.fetch_feed`` / ``fetch_paper`` / ``fetch_html``,
-    plus any future cache that lands. No on-disk cache, no temp cache
-    folder, no shared state between tests.
+    """Stub the network: ``shared.download._http_get`` answers from the
+    fixture files. Yields a namespace with a ``calls`` list -- every URL
+    the production code requested (cachetta is inert, so every request
+    is observable).
     """
     calls: list[str] = []
 
@@ -108,11 +121,7 @@ def arxiv():
             raise _raise_404(url)
         return path.read_bytes()
 
-    def bypass(self, *args, **kwargs):
-        return self._fn(*args, **kwargs)
-
-    with patch.object(download, "_http_get", fake_http_get), \
-         patch.object(_Cached, "__call__", bypass):
+    with patch.object(download, "_http_get", fake_http_get):
         yield SimpleNamespace(calls=calls)
 
 
