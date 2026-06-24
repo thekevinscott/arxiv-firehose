@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import serve as serve_mod
 from .commands import classify as classify_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
@@ -35,12 +36,18 @@ from .shared.config import (
 from .shared.convert import REAL_CONVERTER, Converter
 from .shared.logsetup import get_logger
 
+DEFAULT_SERVE_HOST = serve_mod.DEFAULT_HOST
+DEFAULT_SERVE_PORT = serve_mod.DEFAULT_PORT
+
 __all__ = [
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
+    "DEFAULT_SERVE_HOST",
+    "DEFAULT_SERVE_PORT",
     "classify",
     "fetch",
     "render_markdown",
+    "serve",
     "status",
     "sync_metadata",
     "train_categories",
@@ -197,3 +204,19 @@ def status(
     a "fully classified" paper should carry.
     """
     return status_mod.render(data_dir, config_file)
+
+
+def serve(
+    data_dir: Path = DEFAULT_DATA_DIR,
+    config_file: Path | None = None,
+    *,
+    host: str = DEFAULT_SERVE_HOST,
+    port: int = DEFAULT_SERVE_PORT,
+) -> None:
+    """Run the HTTP API. Blocks; use a systemd unit for the daemon.
+
+    A tailnet-only counterpart to the CLI: ``status`` / ``fetch`` /
+    ``classify`` over HTTP so future ops don't require SSH. Bind to the
+    tailscale IP in production; default ``127.0.0.1`` is for local dev.
+    """
+    serve_mod.serve(data_dir, config_file, host=host, port=port)

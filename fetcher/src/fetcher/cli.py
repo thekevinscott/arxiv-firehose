@@ -84,6 +84,21 @@ def status(
     typer.echo(api.status(data_dir, config))
 
 
+@app.command("serve")
+def serve(
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+    host: str = typer.Option(
+        api.DEFAULT_SERVE_HOST, "--host",
+        help="Bind address. Use the tailscale IP for tailnet access; "
+        "default 127.0.0.1 is local-dev only.",
+    ),
+    port: int = typer.Option(api.DEFAULT_SERVE_PORT, "--port", help="HTTP port."),
+) -> None:
+    """Run the HTTP API. Foregrounded; use systemd for the daemon."""
+    api.serve(data_dir, config, host=host, port=port)
+
+
 @app.command("train-categories")
 def train_categories(
     labels_root: Path = typer.Argument(

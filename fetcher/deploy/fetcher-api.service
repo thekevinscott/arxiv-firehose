@@ -1,0 +1,24 @@
+[Unit]
+Description=arxiv-firehose HTTP API (fetcher serve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tower
+Group=tower
+WorkingDirectory=/home/tower/apps/arxiv-firehose/fetcher
+Environment=ARXIV_FIREHOSE_CACHE_DIR=/mnt/bertha/.cache/arxiv-firehose
+Environment=ARXIV_FIREHOSE_LOG_DIR=/mnt/bertha/data/arxiv-firehose
+# 0.0.0.0 binds every interface; the tailscale ACL + UFW are the perimeter.
+# To restrict to the tailscale interface only, replace with `--host $(tailscale ip -4)`
+# wrapped in an ExecStartPre that resolves to a stable value.
+ExecStart=/home/tower/.local/bin/uv run fetcher serve \
+    --data-dir /mnt/bertha/data/arxiv-firehose/data \
+    --host 0.0.0.0 \
+    --port 8087
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -7,6 +7,39 @@ Many conventions here are pulled from
 [thekevinscott/dirsql](https://github.com/thekevinscott/dirsql) — when in doubt,
 that repo's `AGENTS.md` is the reference.
 
+## Ops: prefer the HTTP API over SSH
+
+The fetcher exposes an HTTP API (`fetcher serve`) so `status` / `fetch` /
+`classify` can be triggered from anywhere on the tailnet without SSHing
+into the deployment box. On tower it runs as `fetcher-api.service`
+(systemd) bound to the tailscale interface on port 8087.
+
+**Default for any "what's tower doing?" or "kick a run" task: curl, not
+SSH.** SSH commands need to be whitelisted per-call by the user; HTTP
+calls do not. Reach for SSH only when you need something the API can't
+do: editing config, reading the systemd journal, repairing data,
+deploying new code.
+
+```sh
+BASE=http://tower.tail790bbc.ts.net:8087
+
+curl -s $BASE/status                          # paper / classified counts
+curl -s $BASE/logs/classify?lines=30          # tail the classify cron log
+curl -s $BASE/logs/fetch?lines=30             # tail the fetch cron log
+curl -s $BASE/jobs                            # list spawned jobs (this API process)
+
+curl -sX POST $BASE/fetch                     # kick a fetch run; returns Job
+curl -sX POST $BASE/classify                  # kick a classify run; returns Job
+curl -s $BASE/jobs/{id}                       # poll one job for exit_code
+```
+
+POST endpoints return immediately with a `Job` (id, pid, started_at,
+exit_code=null). The work continues in the background as a subprocess
+that survives an API restart. Watch progress with `/logs/{kind}` (tails
+the shared cron log) or `/jobs/{id}` (per-process pid + exit code).
+
+OpenAPI docs at `$BASE/docs` if a curl call is going sideways.
+
 ## Scratch files
 
 Write scratch/temporary files to `/tmp`, not into the repo. Use unique

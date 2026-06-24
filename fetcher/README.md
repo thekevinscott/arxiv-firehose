@@ -86,6 +86,7 @@ bandwidth, nothing else.
 fetcher fetch              # daily ingest: sync RSS metadata, render markdown
 fetcher classify           # daily labeling: abstract -> topic flags (LLM)
 fetcher status             # print counts
+fetcher serve              # HTTP API for the three above (tailnet-only)
 fetcher train-categories   # developer: compile labels/ -> prompts/
 ```
 
@@ -155,6 +156,40 @@ latex = true            # also pull the LaTeX source tarball
 [ingest]
 backfill_days = 0       # skip papers older than N days; 0 = all of RSS
 ```
+
+## HTTP API
+
+`fetcher serve` runs a small FastAPI app exposing the cron commands
+over HTTP, so a remote client (or another agent) can trigger and
+inspect runs without SSHing into the box. Bind to a tailscale IP and
+let the tailnet ACL be the perimeter — there is no auth.
+
+```sh
+fetcher serve --host 100.x.y.z --port 8087    # tower (tailscale IP)
+fetcher serve                                  # 127.0.0.1:8087 (local dev)
+```
+
+| Endpoint                        | Behavior |
+|---------------------------------|----------|
+| `GET  /status`                  | Same report as `fetcher status`. |
+| `POST /fetch`                   | Spawns `fetcher fetch`, returns a `Job` (HTTP 202). |
+| `POST /classify`                | Spawns `fetcher classify`, returns a `Job` (HTTP 202). |
+| `GET  /jobs`                    | Jobs spawned by this API process (ring buffer). |
+| `GET  /jobs/{id}`               | One job: pid, started_at, exit_code, log_path. |
+| `GET  /logs/{fetch,classify}`   | Tail the shared cron log (`?lines=50` default). |
+| `GET  /docs`                    | OpenAPI / Swagger UI. |
+
+Long jobs are fire-and-forget. `POST /classify` returns immediately
+with a job id; the child runs detached (`start_new_session`) and
+survives an API restart. Tail `/logs/classify` for progress.
+
+Output goes to the same `{kind}-cron.log` that cron writes to, so one
+`tail -f` covers both triggering paths.
+
+Deployment is a systemd unit; see `fetcher/deploy/fetcher-api.service`.
+The HTTP API runs *alongside* the cron, not as a replacement — cron is
+the scheduler, the API is on-demand. Independent failure modes by
+design.
 
 ## Daily cron
 

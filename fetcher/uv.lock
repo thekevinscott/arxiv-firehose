@@ -3,11 +3,11 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-06-06T17:46:51.570097651Z"
+exclude-newer = "2026-06-21T11:26:56.438282404Z"
 exclude-newer-span = "P3D"
 
 [options.exclude-newer-package]
-cachetta = { timestamp = "2026-06-09T17:46:51.570012501Z", span = "PT0S" }
+cachetta = { timestamp = "2026-06-24T11:26:56.438216724Z", span = "PT0S" }
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -609,6 +609,22 @@ wheels = [
 ]
 
 [[package]]
+name = "fastapi"
+version = "0.138.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/58/ff455d9fe47c60abadb34b9e05a304b1f05f5ab8000ac01565156b6f5e43/fastapi-0.138.0.tar.gz", hash = "sha256:d445a4877636ad191e7053e08c9bf98cb921a6756776848400bb773d1740c061", size = 419240, upload-time = "2026-06-20T01:18:05.259Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/ff/8496d9847a5fedae775eb49460722d3efaa80487854273e9647ae876218c/fastapi-0.138.0-py3-none-any.whl", hash = "sha256:b6f54fd1bd72c80b0f899f172c61a600f6f7af9b43d4d772a018f35624048cb0", size = 126779, upload-time = "2026-06-20T01:18:03.483Z" },
+]
+
+[[package]]
 name = "fastuuid"
 version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -659,12 +675,14 @@ dependencies = [
     { name = "cachetta" },
     { name = "coaxer" },
     { name = "dirsql" },
+    { name = "fastapi" },
     { name = "feedparser" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pymupdf4llm" },
     { name = "pypandoc-binary" },
     { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -689,6 +707,7 @@ requires-dist = [
     { name = "cachetta", specifier = ">=0.6.6,<0.7" },
     { name = "coaxer", specifier = ">=0.3.13,<0.4" },
     { name = "dirsql", specifier = ">=0.3.12" },
+    { name = "fastapi", specifier = ">=0.118" },
     { name = "feedparser", specifier = ">=6.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'", specifier = ">=2.16" },
     { name = "httpx", specifier = ">=0.27" },
@@ -696,6 +715,7 @@ requires-dist = [
     { name = "pymupdf4llm", specifier = ">=1.27.2.3" },
     { name = "pypandoc-binary", specifier = ">=1.13" },
     { name = "typer", specifier = ">=0.12" },
+    { name = "uvicorn", specifier = ">=0.40" },
 ]
 provides-extras = ["gcs", "s3"]
 

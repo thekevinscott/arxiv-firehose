@@ -18,6 +18,8 @@ dependencies = [
     "pymupdf4llm>=1.27.2.3",
     "coaxer>=0.3.13,<0.4",
     "dirsql>=0.3.12",
+    "fastapi>=0.118",
+    "uvicorn>=0.40",
 ]
 
 [project.optional-dependencies]
