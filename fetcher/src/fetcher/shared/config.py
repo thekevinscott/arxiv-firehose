@@ -28,10 +28,10 @@ DEFAULT_CACHE_DIR = Path(
 DEFAULT_CACHE_DURATION = timedelta(days=365)
 
 # Default OpenAI-compatible LLM endpoint for classify. Points at a local
-# Ollama. Not user-configurable -- the LLM client reads these constants
-# directly. If you need to point at vLLM, llama.cpp, OpenAI, or another
-# compatible gateway, edit these values.
-DEFAULT_CLASSIFY_BASE_URL = "http://localhost:11434/v1"
+# llama.cpp server (the tower's serves Qwen on :8180). Not user-configurable
+# -- the LLM client reads these constants directly. If you need to point at
+# vLLM, Ollama, OpenAI, or another compatible gateway, edit these values.
+DEFAULT_CLASSIFY_BASE_URL = "http://localhost:8180/v1"
 DEFAULT_CLASSIFY_TIMEOUT_S = 60.0
 
 DEFAULT_CONFIG_TOML = """\
@@ -75,9 +75,9 @@ backfill_days = 0
 # still being authored).
 prompts_dirs = []
 # Model tag served by the OpenAI-compatible endpoint (see
-# DEFAULT_CLASSIFY_BASE_URL in shared/config.py). Defaults to a local
-# Ollama tag; change to whatever your gateway serves.
-model = "phi4:14b"
+# DEFAULT_CLASSIFY_BASE_URL in shared/config.py). Defaults to the llama.cpp
+# tag on tower; change to whatever your gateway serves.
+model = "Qwen3.6-27B-Q4_K_M"
 """
 
 
@@ -103,7 +103,7 @@ class IngestConfig(BaseModel):
 
 class ClassifyConfig(BaseModel):
     prompts_dirs: list[str] = Field(default_factory=list)
-    model: str = "phi4:14b"
+    model: str = "Qwen3.6-27B-Q4_K_M"
 
 
 class Config(BaseModel):

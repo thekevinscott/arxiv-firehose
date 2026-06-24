@@ -100,7 +100,7 @@ def train_categories(
     ),
     model: Optional[str] = typer.Option(
         None, "--model",
-        help="Model tag for --optimizer gepa (e.g. phi4:14b on Ollama).",
+        help="Model tag for --optimizer gepa (e.g. Qwen3.6-27B-Q4_K_M on llama.cpp).",
     ),
     base_url: str = typer.Option(
         api.DEFAULT_CLASSIFY_BASE_URL, "--base-url",

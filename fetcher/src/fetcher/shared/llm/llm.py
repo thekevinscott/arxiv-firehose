@@ -17,8 +17,8 @@ request:
   *inside* the cached function so a malformed body raises before
   cachetta sees a return value -- the cache never holds poison.
 
-The endpoint shape is the de-facto cross-vendor standard: Ollama
-(``/v1/chat/completions``), vLLM, llama.cpp's server, OpenAI itself,
+The endpoint shape is the de-facto cross-vendor standard: llama.cpp's
+server (``/v1/chat/completions``), Ollama, vLLM, OpenAI itself, and
 LiteLLM gateways all accept the same request and constrain output via
 ``response_format.json_schema``.
 
