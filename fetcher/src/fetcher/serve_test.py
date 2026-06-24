@@ -42,22 +42,28 @@ def log_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def spawns(log_dir: Path):
-    """A recording spawn that opens the log file and returns a FakePopen."""
+    """A recording spawn that opens the log file and returns a FakePopen.
+
+    Tests can pre-seed ``next_popens`` to override the default
+    (a fresh running FakePopen) for individual spawns -- useful when a
+    test needs the spawned process to look already-finished.
+    """
     calls: list[tuple[str, Path, Path]] = []
+    next_popens: list[FakePopen] = []
 
     def spawn(kind, data_dir, log_path):
         calls.append((kind, data_dir, log_path))
         # Touch the file so /logs has something to tail in tests that
         # want to see the read path work end-to-end.
         log_path.touch()
-        return FakePopen()
+        return next_popens.pop(0) if next_popens else FakePopen()
 
-    return spawn, calls
+    return spawn, calls, next_popens
 
 
 @pytest.fixture
 def client(tmp_path: Path, spawns, log_dir: Path):
-    spawn, _ = spawns
+    spawn, _, _ = spawns
     app = serve.make_app(data_dir=tmp_path / "data", spawn=spawn, log_dir=log_dir)
     with TestClient(app) as c:
         yield c
@@ -75,7 +81,7 @@ def describe_status():
 
 def describe_post_fetch():
     def it_spawns_and_returns_a_job(client: TestClient, spawns):
-        _, calls = spawns
+        _, calls, _ = spawns
         r = client.post("/fetch")
         assert r.status_code == 202
         body = r.json()
@@ -89,13 +95,52 @@ def describe_post_fetch():
 
 def describe_post_classify():
     def it_spawns_and_returns_a_job(client: TestClient, spawns):
-        _, calls = spawns
+        _, calls, _ = spawns
         r = client.post("/classify")
         assert r.status_code == 202
         body = r.json()
         assert body["kind"] == "classify"
         assert body["log_path"].endswith("classify-cron.log")
         assert calls[0][0] == "classify"
+
+
+def describe_duplicate_concurrent_jobs():
+    def it_returns_409_with_existing_job_when_same_kind_in_flight(
+        client: TestClient, spawns
+    ):
+        _, calls, _ = spawns
+        first = client.post("/classify").json()
+        # Second POST while the first is still "running" (FakePopen
+        # default returncode is None) should be rejected, not spawn again.
+        r = client.post("/classify")
+        assert r.status_code == 409
+        body = r.json()
+        assert body["detail"]["error"] == "classify already running"
+        assert body["detail"]["job"]["id"] == first["id"]
+        # Crucially: only one spawn happened.
+        assert len(calls) == 1
+
+    def it_allows_concurrent_fetch_and_classify(
+        client: TestClient, spawns
+    ):
+        _, calls, _ = spawns
+        assert client.post("/fetch").status_code == 202
+        assert client.post("/classify").status_code == 202
+        assert len(calls) == 2
+
+    def it_allows_a_new_run_after_the_previous_finished(
+        client: TestClient, spawns
+    ):
+        _, calls, next_popens = spawns
+        # First spawn returns a popen we can flip to "finished" later.
+        finished = FakePopen()
+        next_popens.append(finished)
+        first = client.post("/classify").json()
+        finished.returncode = 0
+        # Now a new POST should succeed -- the prior job exited.
+        second = client.post("/classify").json()
+        assert second["id"] != first["id"]
+        assert len(calls) == 2
 
 
 def describe_get_jobs():

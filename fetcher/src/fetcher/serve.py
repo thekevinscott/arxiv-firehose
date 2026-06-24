@@ -32,10 +32,11 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -81,8 +82,18 @@ class JobRegistry:
     def __init__(self, capacity: int = 50) -> None:
         self._jobs: dict[str, tuple[Job, subprocess.Popen]] = {}
         self._capacity = capacity
+        # FastAPI dispatches sync endpoints in a threadpool, so two
+        # concurrent POSTs can race the check-then-spawn in
+        # ``add_unless_running``. The lock makes that compound op atomic.
+        self._lock = threading.Lock()
 
     def add(
+        self, kind: JobKind, popen: subprocess.Popen, log_path: Path
+    ) -> Job:
+        with self._lock:
+            return self._add_locked(kind, popen, log_path)
+
+    def _add_locked(
         self, kind: JobKind, popen: subprocess.Popen, log_path: Path
     ) -> Job:
         job = Job(
@@ -94,25 +105,61 @@ class JobRegistry:
             log_path=str(log_path),
         )
         self._jobs[job.id] = (job, popen)
-        self._evict()
+        self._evict_locked()
         return job
 
     def get(self, job_id: str) -> Job | None:
-        pair = self._jobs.get(job_id)
-        if pair is None:
-            return None
-        job, popen = pair
-        # poll() returns None while running, an int once exited; cache it
-        # on the Job so a later GET still reports a finished job's code
-        # even after the Popen has been reaped.
-        if job.exit_code is None:
-            job.exit_code = popen.poll()
-        return job
+        with self._lock:
+            pair = self._jobs.get(job_id)
+            if pair is None:
+                return None
+            job, popen = pair
+            # poll() returns None while running, an int once exited;
+            # cache it on the Job so a later GET still reports a finished
+            # job's code even after the Popen is gone.
+            if job.exit_code is None:
+                job.exit_code = popen.poll()
+            return job
 
     def list(self) -> list[Job]:
-        return [j for j in (self.get(jid) for jid in list(self._jobs)) if j is not None]
+        with self._lock:
+            ids = list(self._jobs)
+        # Release the lock before calling get() to avoid reentrant
+        # acquisition; get() takes the lock itself per id.
+        return [j for j in (self.get(jid) for jid in ids) if j is not None]
 
-    def _evict(self) -> None:
+    def running(self, kind: JobKind) -> Job | None:
+        """Return any same-kind job whose subprocess is still running."""
+        with self._lock:
+            return self._running_locked(kind)
+
+    def _running_locked(self, kind: JobKind) -> Job | None:
+        for job, popen in self._jobs.values():
+            if job.kind == kind and popen.poll() is None:
+                return job
+        return None
+
+    def add_unless_running(
+        self,
+        kind: JobKind,
+        spawner: Callable[[], subprocess.Popen],
+        log_path: Path,
+    ) -> tuple[Job, bool]:
+        """Spawn via *spawner* unless a same-kind job is already running.
+
+        Returns ``(job, is_new)``. When *is_new* is False, *job* is the
+        already-running one and *spawner* was not called. The whole
+        check-and-spawn happens under the lock so two concurrent
+        callers can't both win the race.
+        """
+        with self._lock:
+            existing = self._running_locked(kind)
+            if existing is not None:
+                return existing, False
+            popen = spawner()
+            return self._add_locked(kind, popen, log_path), True
+
+    def _evict_locked(self) -> None:
         if len(self._jobs) <= self._capacity:
             return
         finished = sorted(
@@ -193,8 +240,26 @@ def make_app(
 
     def _start(kind: JobKind) -> Job:
         log_path = logs / CRON_LOG_NAME.format(kind=kind)
-        popen = spawn(kind, data_dir, log_path)
-        return registry.add(kind, popen, log_path)
+        job, is_new = registry.add_unless_running(
+            kind,
+            spawner=lambda: spawn(kind, data_dir, log_path),
+            log_path=log_path,
+        )
+        if not is_new:
+            # 409 Conflict: a same-kind run is already in flight. Carry
+            # the existing job in the response so the caller can poll
+            # /jobs/{id} or tail /logs/{kind} without a second request.
+            # This makes the API the single dedup point: cron, manual
+            # CLI, and ad-hoc curl all funnel through here and never
+            # race each other on the same paper-x-category pairs.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": f"{kind} already running",
+                    "job": job.model_dump(),
+                },
+            )
+        return job
 
     @app.get("/status")
     def get_status() -> dict[str, str]:

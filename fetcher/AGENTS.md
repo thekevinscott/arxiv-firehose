@@ -41,6 +41,11 @@ exit_code=null). The work continues in the background as a subprocess
 that survives an API restart. Watch progress with `/logs/{kind}` (tails
 the shared cron log) or `/jobs/{id}` (per-process pid + exit code).
 
+A POST while a same-kind job is already running returns `409 Conflict`
+carrying the existing `Job` in `detail.job` -- safe to spam-trigger; the
+API is the dedup point so you cannot accidentally double up on a long
+classify run.
+
 OpenAPI docs at `$BASE/docs` if a curl call is going sideways.
 
 ## Scratch files

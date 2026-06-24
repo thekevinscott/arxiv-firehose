@@ -172,8 +172,8 @@ fetcher serve                                  # 127.0.0.1:8087 (local dev)
 | Endpoint                        | Behavior |
 |---------------------------------|----------|
 | `GET  /status`                  | Same report as `fetcher status`. |
-| `POST /fetch`                   | Spawns `fetcher fetch`, returns a `Job` (HTTP 202). |
-| `POST /classify`                | Spawns `fetcher classify`, returns a `Job` (HTTP 202). |
+| `POST /fetch`                   | Spawns `fetcher fetch`, returns a `Job` (HTTP 202). 409 if a fetch is already running. |
+| `POST /classify`                | Spawns `fetcher classify`, returns a `Job` (HTTP 202). 409 if a classify is already running. |
 | `GET  /jobs`                    | Jobs spawned by this API process (ring buffer). |
 | `GET  /jobs/{id}`               | One job: pid, started_at, exit_code, log_path. |
 | `GET  /logs/{fetch,classify}`   | Tail the shared cron log (`?lines=50` default). |
@@ -183,13 +183,18 @@ Long jobs are fire-and-forget. `POST /classify` returns immediately
 with a job id; the child runs detached (`start_new_session`) and
 survives an API restart. Tail `/logs/classify` for progress.
 
-Output goes to the same `{kind}-cron.log` that cron writes to, so one
-`tail -f` covers both triggering paths.
+The API is the **single triggering chokepoint**: cron POSTs to it,
+ad-hoc curls POST to it, future agents POST to it. A duplicate POST
+while a same-kind run is in flight returns `409 Conflict` carrying
+the existing Job, so two cron lines firing seconds apart (or cron +
+manual) cannot race on the same paper-x-category pairs. Different
+kinds (one fetch + one classify) can run concurrently.
 
 Deployment is a systemd unit; see `fetcher/deploy/fetcher-api.service`.
-The HTTP API runs *alongside* the cron, not as a replacement — cron is
-the scheduler, the API is on-demand. Independent failure modes by
-design.
+Cron stays as the *scheduler* (`* * * curl -sX POST .../classify`); the
+API is what actually spawns the work. Cron + API are deployed together
+on the same host so the API outage and the cron outage are the same
+event.
 
 ## Daily cron
 
