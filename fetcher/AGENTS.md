@@ -12,7 +12,10 @@ that repo's `AGENTS.md` is the reference.
 The fetcher exposes an HTTP API (`fetcher serve`) so `status` / `fetch` /
 `classify` can be triggered from anywhere on the tailnet without SSHing
 into the deployment box. On tower it runs as `fetcher-api.service`
-(systemd) bound to the tailscale interface on port 8087.
+(user systemd) bound to `0.0.0.0:8087`. Tower is behind home-router
+NAT with no port-forward for 8087, so the API is reachable from the
+tailnet (100.x) and the home LAN (192.168.x) but not from the public
+internet.
 
 **Default for any "what's tower doing?" or "kick a run" task: curl, not
 SSH.** SSH commands need to be whitelisted per-call by the user; HTTP

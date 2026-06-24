@@ -21,8 +21,11 @@ Subprocess (not in-process ``api.fetch()``) is deliberate:
 - log output lands in the same file the cron writes to, so ``tail -f``
   works regardless of how a run was triggered
 
-Auth: none. Bind to the tailscale IP (or 0.0.0.0 behind a firewall) and
-let the tailnet ACL be the perimeter. For local dev, bind 127.0.0.1.
+Auth: none. The intended perimeter is whatever sits in front of the
+host -- on tower that's home-router NAT (no port-forward for 8087)
+plus tailnet routing. Bind ``0.0.0.0`` when the host is firewalled or
+NATted; bind the tailscale IP when extra LAN isolation matters. Local
+dev uses ``127.0.0.1``.
 """
 
 from __future__ import annotations
