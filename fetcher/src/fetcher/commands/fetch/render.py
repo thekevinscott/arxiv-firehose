@@ -24,7 +24,7 @@ from pathlib import Path
 
 import httpx
 
-from ...shared import download
+from . import download
 from ...shared.atomic_write import atomic_write_text
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter, _is_substantial

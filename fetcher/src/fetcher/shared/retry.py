@@ -5,7 +5,7 @@ predicate that decides whether an exception is worth retrying. Backoff
 doubles each attempt (``base``, ``base*2``, ``base*4``...). The final
 attempt re-raises whatever it caught regardless of the predicate.
 
-Lives here because ``shared.download`` (arxiv GETs) and
+Lives here because ``shared.http`` (arxiv GETs) and
 ``shared.build_default_backend`` (LLM POSTs) both need the same shape;
 the only thing that varies is *what counts as retryable*.
 """

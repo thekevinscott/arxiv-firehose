@@ -6,7 +6,7 @@ The real network is replaced two ways:
   test. Any cachetta-decorated function dispatches straight to its bare
   original -- no disk reads, no disk writes, no cache state anywhere.
   Cachetta has its own test suite; these tests assert fetcher behavior.
-- ``arxiv``: swaps ``shared.download._http_get`` for a fixture-backed
+- ``arxiv``: swaps ``shared.http.http_get`` for a fixture-backed
   fake. ``arxiv.calls`` records exactly the URLs the production code
   requested (with cachetta inert, every request is observable).
 - ``fake_classifier``: a Classifier wired through the SDK's public
@@ -26,7 +26,7 @@ import pytest
 from cachetta.utils.cache_fn import _Cached
 
 from fetcher.commands.classify import Classifier
-from fetcher.shared import download
+from fetcher.shared import http
 from fetcher.shared.convert import Converter
 
 FIXTURES = Path(__file__).parent / "__fixtures__"
@@ -107,7 +107,7 @@ def no_cachetta():
 
 @pytest.fixture
 def arxiv():
-    """Stub the network: ``shared.download._http_get`` answers from the
+    """Stub the network: ``shared.http.http_get`` answers from the
     fixture files. Yields a namespace with a ``calls`` list -- every URL
     the production code requested (cachetta is inert, so every request
     is observable).
@@ -121,7 +121,7 @@ def arxiv():
             raise _raise_404(url)
         return path.read_bytes()
 
-    with patch.object(download, "_http_get", fake_http_get):
+    with patch.object(http, "http_get", fake_http_get):
         yield SimpleNamespace(calls=calls)
 
 

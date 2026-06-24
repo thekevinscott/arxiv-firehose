@@ -1,13 +1,14 @@
 """sync-metadata: pull recent paper metadata from arxiv RSS feeds.
 
 Writes one ``metadata.json`` per paper folder. No database -- the filesystem
-is the state. RSS feeds are fetched through ``shared.download.fetch_feed``
+is the state. RSS feeds are fetched through ``fetch.download.fetch_feed``
 (cachetta-cached one day), so repeated runs within a day never re-hit arxiv.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,7 +16,7 @@ from pathlib import Path
 import feedparser
 import httpx
 
-from ...shared import download
+from . import download
 from ...shared.atomic_write import atomic_write_json
 from ...shared.config import Config
 from ...shared.paths import id_from_entry_id, metadata_path, parse_id, version_from_entry_id
@@ -75,6 +76,16 @@ def _announce_type(summary: str) -> str:
     return rest.split()[0].lower() if rest else ""
 
 
+def _published_dt(entry: feedparser.FeedParserDict) -> datetime | None:
+    """The entry's announcement time, or None when feedparser couldn't
+    parse one. The isinstance check doubles as the type narrowing for
+    feedparser's untyped dict."""
+    parsed = entry.get("published_parsed")
+    if isinstance(parsed, time.struct_time):
+        return datetime(*parsed[:6], tzinfo=timezone.utc)
+    return None
+
+
 def _parse_entry(entry: feedparser.FeedParserDict) -> PaperRecord | None:
     # fetcher mirrors only papers first announced this week: drop cross-lists
     # and replacements, which would otherwise pull in old arxiv ids.
@@ -95,8 +106,12 @@ def _parse_entry(entry: feedparser.FeedParserDict) -> PaperRecord | None:
     author_raw = entry.get("author", "")
     authors = [a.strip() for a in author_raw.split(",") if a.strip()]
 
-    published = entry.get("published", "") or entry.get("updated", "")
-    updated = entry.get("updated", "") or published
+    # Plain-dict lookup for "updated": feedparser's compat shim (issue 310)
+    # aliases the missing key to "published" and emits a DeprecationWarning
+    # on every .get("updated") -- .keys() is inherited from dict and silent.
+    raw_updated = entry["updated"] if "updated" in entry.keys() else ""
+    published = entry.get("published", "") or raw_updated
+    updated = raw_updated or published
 
     return PaperRecord(
         arxiv_id=arxiv_id,
@@ -120,7 +135,7 @@ def collect_records(
     """Fetch every tracked feed, dedupe by arxiv_id, merge categories.
 
     Calls ``download.fetch_feed`` directly: that function is the
-    cachetta-cached seam. Tests patch it (or the underlying ``_http_get``)
+    cachetta-cached seam. Tests patch it (or the underlying ``http_get``)
     with ``unittest.mock.patch.object``.
     """
     records: dict[str, PaperRecord] = {}
@@ -145,12 +160,9 @@ def collect_records(
             if rec is None:
                 continue
             if cutoff is not None:
-                try:
-                    dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                    if dt < cutoff:
-                        continue
-                except (TypeError, ValueError):
-                    pass
+                dt = _published_dt(entry)
+                if dt is not None and dt < cutoff:
+                    continue
             if rec.arxiv_id in records:
                 records[rec.arxiv_id].categories |= rec.categories
             else:

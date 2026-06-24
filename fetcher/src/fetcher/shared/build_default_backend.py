@@ -7,7 +7,7 @@ a fake to skip the network entirely.
 
 The retry policy lives here so a test can patch ``_BACKOFF_BASE_S`` to
 zero without touching the LLM module. Retry mechanics are shared with
-``shared.download`` via ``shared.retry.with_retry``.
+``shared.http`` via ``shared.retry.with_retry``.
 """
 
 from __future__ import annotations

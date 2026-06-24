@@ -10,7 +10,7 @@ markdown) and ``classify`` (label each paper against a taxonomy) -- plus
 ``render_markdown``) are also exported here for granular use and tests;
 they are not exposed on the CLI.
 
-Network I/O flows through ``shared.download.fetch_feed`` /
+Network I/O flows through ``commands.fetch.download.fetch_feed`` /
 ``fetch_paper`` / ``fetch_html``, each cachetta-cached. Tests stub them
 out with ``unittest.mock.patch.object`` -- no transport seam to thread.
 The cache root is the process-wide ``shared.config.cache``; override its
