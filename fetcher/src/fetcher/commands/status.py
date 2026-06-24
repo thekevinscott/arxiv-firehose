@@ -46,6 +46,7 @@ def render(data_dir: Path, config_file: Path | None = None) -> str:
     papers = 0
     have_md = 0
     no_md = 0
+    not_yet_fetched = 0
     fully_classified = 0
     partially_classified = 0
     cats: set[str] = set()
@@ -60,12 +61,19 @@ def render(data_dir: Path, config_file: Path | None = None) -> str:
         except (OSError, json.JSONDecodeError):
             pass
 
+        # Mutually exclusive: paper.md is the durable truth and wins over
+        # a stale .no_markdown marker (which can be left behind when a
+        # paper that initially had no markdown gets re-rendered later).
+        # Counting both inflates the totals and pushes the residual
+        # ``papers - have_md - no_md`` negative for "not yet fetched".
         md = pd / "paper.md"
         if md.exists() and md.stat().st_size > 0:
             have_md += 1
             md_bytes += md.stat().st_size
-        if (pd / ".no_markdown").exists():
+        elif (pd / ".no_markdown").exists():
             no_md += 1
+        else:
+            not_yet_fetched += 1
         labels = {f.stem for f in (pd / "classifications").glob("*.json")} \
             if (pd / "classifications").is_dir() else set()
         if expected_cats and labels >= expected_cats:
@@ -84,7 +92,7 @@ def render(data_dir: Path, config_file: Path | None = None) -> str:
         f"Papers known:       {papers:,}",
         f"Markdown on disk:   {have_md:,}  "
         f"({no_md:,} have none available, "
-        f"{papers - have_md - no_md:,} not yet fetched)",
+        f"{not_yet_fetched:,} not yet fetched)",
         f"Classified:         {fully_classified:,}  "
         f"({partially_classified:,} partial, "
         f"{papers - fully_classified - partially_classified:,} not yet classified)",
