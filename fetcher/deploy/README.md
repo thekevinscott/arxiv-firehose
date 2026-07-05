@@ -110,7 +110,8 @@ The full sequence to deploy the PDF subprocess isolation + memory cap:
 ssh tower@tower.tail790bbc.ts.net -p 22884
 
 cd ~/apps/arxiv-firehose/fetcher
-git pull                                  # picks up shared/convert.py fix
+git checkout main                          # tower had been on a feature branch
+git pull                                   # picks up shared/convert.py fix
 uv sync                                    # no new deps, but idempotent
 
 # Install the systemd timer + service.
