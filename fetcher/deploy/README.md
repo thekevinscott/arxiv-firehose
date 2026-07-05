@@ -40,10 +40,14 @@ Edit the unit if paths differ (the defaults assume `~/apps/arxiv-firehose/...`
 for code and `/mnt/bertha/...` for data and logs; `%h` resolves to the
 deploy user's home).
 
-## fetcher-fetch.service + fetcher-fetch.timer
+## fetcher-fetch.service + fetcher-fetch.timer (optional)
 
-The daily 05:00 EDT ingest as a systemd timer instead of a cron entry.
-Adds three things cron did not give us:
+**Not required for the OOM fix.** The subprocess-isolated PDF converter
+in `shared/convert.py` is what actually stopped the 2026-07-03/04 tower
+OOMs. Tower stays on its existing cron entry unless you opt in.
+
+If you *do* want to replace cron with a systemd timer, it adds three
+things cron does not give you:
 
 - **A cgroup memory cap (`MemoryMax=2G`).** After the 2026-07-03/04 OOM
   where a single pathological paper's PDF (2607.02140) pushed the fetch
@@ -104,7 +108,8 @@ systemctl --user show fetcher-fetch.service \
 
 ## Rollout on tower (2026-07-04 OOM fix)
 
-The full sequence to deploy the PDF subprocess isolation + memory cap:
+The whole rollout is the pull; cron keeps firing at 05:00 with the fixed
+code. Installing the systemd timer (above) is optional and orthogonal.
 
 ```sh
 ssh tower@tower.tail790bbc.ts.net -p 22884
@@ -113,16 +118,6 @@ cd ~/apps/arxiv-firehose/fetcher
 git checkout main                          # tower had been on a feature branch
 git pull                                   # picks up shared/convert.py fix
 uv sync                                    # no new deps, but idempotent
-
-# Install the systemd timer + service.
-mkdir -p ~/.config/systemd/user
-cp deploy/fetcher-fetch.service deploy/fetcher-fetch.timer \
-    ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now fetcher-fetch.timer
-
-# Delete the old cron entry so both don't fire.
-crontab -e
 
 # Sanity-check on the known-pathological paper without waiting for
 # tomorrow's 05:00 timer. This runs the full fetch (~3.5 h); use a
