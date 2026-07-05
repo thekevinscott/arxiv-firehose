@@ -14,13 +14,34 @@ Fixture papers:
   2401.00002 -- no HTML, PDF-only e-print -> markdown via the PDF fallback
   2401.00003 -- no HTML, LaTeX e-print -> markdown via the LaTeX fallback
   2401.00004 -- no HTML, no e-print, no PDF -> .no_markdown
+  2607.02140 -- pathological PDF (heatmap images) -> memory bomb regression
 """
 
 import dataclasses
+import json
+import multiprocessing as mp
+import resource
+from pathlib import Path
 
 import pytest
 
 from fetcher import render_markdown, sync_metadata
+
+# The pathological paper from the 2026-07-03/04 tower OOM: an arxiv HTML 404,
+# a LaTeX e-print that pandoc rejects, and a PDF with embedded heatmaps that
+# pymupdf4llm rasterizes into ~70 MiB numpy arrays per image. The RED test
+# below runs render on this paper with the REAL converter under a memory cap
+# and asserts the process peak stays bounded.
+PATHOLOGICAL_PID = "2607.02140"
+# 4 GB is the smallest RLIMIT_AS that lets both pandoc's Haskell RTS arena
+# and enough of pymupdf's virtual reservation start; below that pymupdf gets
+# stuck in an internal alloc-retry loop rather than raising cleanly.
+_PATHOLOGICAL_MEMCAP_MB = 4096
+_PATHOLOGICAL_PEAK_BUDGET_MB = 500
+# Wall covers: the LaTeX path invoking pandoc under RLIMIT_AS (fast fail on
+# this paper, but with headroom for cold-cache pandoc startup under a full
+# pytest suite's memory pressure) *and* the PDF grandchild's own 120 s cap.
+_PATHOLOGICAL_WALL_S = 240
 
 
 def _read_render_log(data_dir):
@@ -209,3 +230,147 @@ def describe_render_markdown_logging():
         log_text = _read_render_log(data_dir)
         assert "html 2401.00002: HTTP 404" in log_text
         assert "developer.mozilla" not in log_text
+
+
+# ---------------------------------------------------------------------------
+# Pathological paper regression: 2607.02140
+# ---------------------------------------------------------------------------
+#
+# 2026-07-03 and 2026-07-04 the tower fetch cron was OOM-killed at ~30 GB
+# anon-rss while rendering 2607.02140. The paper has no arxiv HTML, a LaTeX
+# e-print pandoc rejects (exit 64), and a PDF whose embedded heatmap images
+# make pymupdf4llm rasterize into ~70 MiB float32 numpy arrays. The
+# ``_markdown_from_pdf`` guard catches the eventual failure but the peak
+# allocation still balloons and glibc's arena retains it, so per-paper
+# leftovers accumulate across the ~15k-paper daily loop.
+#
+# The regression contract: the render *loop process* peak stays bounded
+# regardless of what a single paper's PDF demands. The fix subprocess-
+# isolates the PDF converter so a hostile paper eats its own grandchild's
+# memory, not the fetch loop's.
+
+
+def _run_render_under_memcap(data_dir_str: str, memcap_mb: int,
+                             fixtures_dir_str: str, q: "mp.Queue") -> None:
+    """Child entrypoint: run ``render_markdown`` under RLIMIT_AS.
+
+    Reports ``(outcome, peak_mb, counts_or_detail)`` on *q*. Must be
+    module-level so the ``spawn`` mp context can pickle it.
+    """
+    resource.setrlimit(
+        resource.RLIMIT_AS,
+        (memcap_mb * 1024 * 1024, memcap_mb * 1024 * 1024),
+    )
+
+    # Reproduce conftest's ``arxiv`` + ``no_cachetta`` fixtures in-process
+    # -- ``spawn`` gives us a fresh interpreter with no pytest state.
+    import httpx
+    from unittest.mock import patch
+    from cachetta.utils.cache_fn import _Cached
+
+    from fetcher import render_markdown as _render_markdown
+    from fetcher.shared import http
+
+    fixtures = Path(fixtures_dir_str)
+
+    def _resolve(url: str) -> Path | None:
+        if "/html/" in url:
+            ident = url.rsplit("/html/", 1)[1].replace("/", "_")
+            return fixtures / f"html_{ident}.html"
+        if "/pdf/" in url:
+            ident = url.rsplit("/pdf/", 1)[1].replace("/", "_")
+            return fixtures / f"pdf_{ident}.pdf"
+        if "/e-print/" in url:
+            ident = url.rsplit("/e-print/", 1)[1].replace("/", "_")
+            targz = fixtures / f"eprint_{ident}.tar.gz"
+            return targz if targz.exists() else fixtures / f"eprint_{ident}.pdf"
+        return None
+
+    def fake_http_get(url: str, timeout: float) -> bytes:
+        path = _resolve(url)
+        if path is None or not path.exists():
+            req = httpx.Request("GET", url)
+            resp = httpx.Response(404, request=req)
+            raise httpx.HTTPStatusError(
+                f"404 Not Found for {url}", request=req, response=resp,
+            )
+        return path.read_bytes()
+
+    def bypass_cachetta(self, *args, **kwargs):
+        return self._fn(*args, **kwargs)
+
+    try:
+        with patch.object(_Cached, "__call__", bypass_cachetta), \
+             patch.object(http, "http_get", fake_http_get):
+            counts = _render_markdown(Path(data_dir_str))
+        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        q.put(("OK", peak_kb // 1024, counts))
+    except MemoryError as exc:
+        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        q.put(("MEMORY", peak_kb // 1024, str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        q.put(("EXCEPTION", peak_kb // 1024, f"{type(exc).__name__}: {exc}"))
+
+
+def _seed_pathological_paper(data_dir: Path) -> None:
+    """Write a metadata.json for ``PATHOLOGICAL_PID`` directly.
+
+    ``sync_metadata`` would need this id in the RSS fixture; seeding the
+    folder skips that -- render only reads arxiv_id and the three URLs.
+    """
+    pd = data_dir / PATHOLOGICAL_PID
+    pd.mkdir()
+    (pd / "metadata.json").write_text(json.dumps({
+        "arxiv_id": PATHOLOGICAL_PID,
+        "html_url": f"https://arxiv.org/html/{PATHOLOGICAL_PID}v1",
+        "source_url": f"https://arxiv.org/e-print/{PATHOLOGICAL_PID}",
+        "pdf_url": f"https://arxiv.org/pdf/{PATHOLOGICAL_PID}v1",
+    }))
+
+
+def describe_render_markdown_pathological_paper():
+    def it_keeps_the_render_process_peak_under_500mb_on_a_pdf_memory_bomb(
+        data_dir,
+    ):
+        _seed_pathological_paper(data_dir)
+        fixtures_dir = Path(__file__).parent / "__fixtures__"
+
+        ctx = mp.get_context("spawn")
+        q: "mp.Queue" = ctx.Queue()
+        p = ctx.Process(
+            target=_run_render_under_memcap,
+            args=(str(data_dir), _PATHOLOGICAL_MEMCAP_MB,
+                  str(fixtures_dir), q),
+        )
+        p.start()
+        p.join(timeout=_PATHOLOGICAL_WALL_S)
+
+        if p.is_alive():
+            p.terminate()
+            p.join(5)
+            if p.is_alive():
+                p.kill()
+            pytest.fail(
+                f"render_markdown hung > {_PATHOLOGICAL_WALL_S}s "
+                f"on {PATHOLOGICAL_PID}"
+            )
+
+        assert not q.empty(), (
+            f"child exited {p.exitcode} without reporting -- "
+            "likely killed by RLIMIT_AS before it could send"
+        )
+        outcome, peak_mb, detail = q.get()
+
+        # The fetch loop's contract: no single paper causes the render
+        # process to hold half a gigabyte of memory. The subprocess-isolated
+        # PDF converter satisfies this by pushing pymupdf's allocations
+        # into a grandchild that is killed on return.
+        assert peak_mb < _PATHOLOGICAL_PEAK_BUDGET_MB, (
+            f"render peak {peak_mb} MB exceeds {_PATHOLOGICAL_PEAK_BUDGET_MB} "
+            f"MB budget (outcome={outcome}, detail={detail!r})"
+        )
+        assert outcome == "OK", (
+            f"render did not complete cleanly: {outcome}: {detail!r} "
+            f"(peak={peak_mb} MB)"
+        )

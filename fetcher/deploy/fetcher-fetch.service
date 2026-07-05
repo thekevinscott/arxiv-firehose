@@ -1,0 +1,38 @@
+[Unit]
+Description=arxiv-firehose daily ingest (fetcher fetch)
+# Started by fetcher-fetch.timer, not directly. Failures propagate to
+# the journal (`journalctl --user -u fetcher-fetch`).
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/apps/arxiv-firehose/fetcher
+Environment=ARXIV_FIREHOSE_CACHE_DIR=/mnt/bertha/.cache/arxiv-firehose
+Environment=ARXIV_FIREHOSE_LOG_DIR=/mnt/bertha/data/arxiv-firehose
+ExecStart=%h/.local/bin/uv run fetcher fetch \
+    --data-dir /mnt/bertha/data/arxiv-firehose/data
+
+# Safety net after 2026-07-03/04 OOM: the render loop's PDF path is now
+# subprocess-isolated (see shared/convert.py), so a pathological paper eats
+# its own grandchild's memory, not the fetch process's. This cgroup cap is
+# defense-in-depth -- any leak we haven't found yet trips MemoryMax and
+# systemd SIGKILLs the whole unit instead of the kernel OOM-killer picking
+# an arbitrary victim on tower (llama-server, Postgres, ...).
+MemoryMax=2G
+# Give the process a chance to log via MemoryHigh (a soft cap that triggers
+# reclaim before MemoryMax's hard kill).
+MemoryHigh=1500M
+
+# The cron redirected stdout/stderr to /mnt/bertha/data/.../fetcher-cron.log.
+# The systemd journal keeps its own copy and rotates automatically; the
+# separate log file is still useful for tail-based tooling (e.g., the
+# HTTP API's /logs/fetch endpoint).
+StandardOutput=append:/mnt/bertha/data/arxiv-firehose/fetcher-cron.log
+StandardError=append:/mnt/bertha/data/arxiv-firehose/fetcher-cron.log
+
+# fetch is idle 23 h / day; no reason to keep the venv resident.
+Nice=5
+
+[Install]
+# oneshot units activated by a timer don't need WantedBy, but leaving it
+# empty means `systemctl --user enable fetcher-fetch.service` is a no-op --
+# expected. Enable the timer instead.

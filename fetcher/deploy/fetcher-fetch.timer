@@ -1,0 +1,21 @@
+[Unit]
+Description=Daily trigger for fetcher-fetch.service
+# Replaces the cron entry:
+#   0 5 * * * cd /home/tower/apps/arxiv-firehose/fetcher && \
+#     /home/tower/.local/bin/uv run fetcher fetch \
+#     --data-dir /mnt/bertha/data/arxiv-firehose/data \
+#     >> /mnt/bertha/data/arxiv-firehose/fetcher-cron.log 2>&1
+
+[Timer]
+# 05:00 America/New_York -- same wall time the cron used. systemd timers
+# honor the machine's timezone (Africa/... etc); tower is on EDT so this
+# is 09:00 UTC / 05:00 EDT during summer, 10:00 UTC / 05:00 EST in winter.
+OnCalendar=*-*-* 05:00:00
+# If tower was asleep or off at 05:00, run the next time it's up.
+Persistent=true
+# A small jitter (0-5 min) so the fetch and any other 05:00 timer don't
+# stampede on the same second. arxiv doesn't care about a 3-minute skew.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

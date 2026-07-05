@@ -186,16 +186,89 @@ def latex_to_markdown(eprint: bytes, *, pandoc: Callable[..., str] | None = None
             ) from exc
 
 
-def _default_pdf_convert(pdf: bytes) -> str:
-    """Convert PDF bytes to markdown with pymupdf4llm (lazily imported)."""
-    import pymupdf
-    import pymupdf4llm
+# The PDF conversion path is subprocess-isolated because pymupdf4llm
+# rasterizes embedded images into large float32 numpy arrays -- a single
+# pathological paper (2607.02140 is the known one from 2026-07-03/04) can
+# push the process past 800 MB. glibc's arena then retains that memory
+# even after the exception unwinds, so per-paper leftovers accumulate
+# across the ~15k-paper daily fetch loop until the kernel OOM-kills the
+# whole fetcher. Running pymupdf in a fresh grandchild process bounded by
+# RLIMIT_AS keeps the fetch loop process flat: the grandchild exits and
+# every byte it allocated goes back to the OS.
+_PDF_SUBPROCESS_MEMCAP_MB = 3072
+_PDF_SUBPROCESS_WALL_S = 120
 
-    doc = pymupdf.open(stream=pdf, filetype="pdf")
+
+def _pdf_convert_grandchild(pdf: bytes, memcap_mb: int, q) -> None:
+    """Grandchild entrypoint: run pymupdf4llm under a hard RLIMIT_AS cap.
+
+    Module-level so ``multiprocessing`` (spawn context) can pickle it.
+    Reports ``(outcome, detail)`` on *q* where outcome is ``"OK"`` (detail
+    is the markdown), ``"MEMORY"``, or ``"EXCEPTION"``.
+    """
+    import resource
+
+    resource.setrlimit(
+        resource.RLIMIT_AS,
+        (memcap_mb * 1024 * 1024, memcap_mb * 1024 * 1024),
+    )
     try:
-        return pymupdf4llm.to_markdown(doc, show_progress=False)
-    finally:
-        doc.close()
+        import pymupdf
+        import pymupdf4llm
+
+        doc = pymupdf.open(stream=pdf, filetype="pdf")
+        try:
+            md = pymupdf4llm.to_markdown(doc, show_progress=False)
+        finally:
+            doc.close()
+        q.put(("OK", md))
+    except MemoryError as exc:
+        q.put(("MEMORY", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        q.put(("EXCEPTION", f"{type(exc).__name__}: {exc}"))
+
+
+def _default_pdf_convert(pdf: bytes) -> str:
+    """Convert PDF bytes to markdown in a memory-capped grandchild process.
+
+    Raises ``MemoryError`` when the grandchild hits its RLIMIT_AS cap
+    (or is killed before it can report), ``TimeoutError`` when it exceeds
+    the wall-clock budget, and ``RuntimeError`` on any other converter
+    exception. All three are swallowed by ``render._markdown_from_pdf``'s
+    ``except Exception`` guard: the paper is marked ``.no_markdown``.
+    """
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    q: "mp.Queue" = ctx.Queue()
+    p = ctx.Process(
+        target=_pdf_convert_grandchild,
+        args=(pdf, _PDF_SUBPROCESS_MEMCAP_MB, q),
+    )
+    p.start()
+    p.join(timeout=_PDF_SUBPROCESS_WALL_S)
+    if p.is_alive():
+        p.terminate()
+        p.join(5)
+        if p.is_alive():
+            p.kill()
+        raise TimeoutError(
+            f"pdf conversion exceeded {_PDF_SUBPROCESS_WALL_S}s"
+        )
+
+    if q.empty():
+        # Grandchild died before reporting -- almost always RLIMIT_AS
+        # SIGKILL'd it or the kernel OOM'd it before the except-block
+        # could push a result. Treat as MemoryError.
+        raise MemoryError(
+            f"pdf conversion grandchild died (exit={p.exitcode})"
+        )
+    outcome, detail = q.get()
+    if outcome == "OK":
+        return detail
+    if outcome == "MEMORY":
+        raise MemoryError(detail)
+    raise RuntimeError(detail)
 
 
 def pdf_to_markdown(pdf: bytes, *, convert: Callable[[bytes], str] | None = None) -> str:
