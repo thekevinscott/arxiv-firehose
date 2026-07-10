@@ -20,6 +20,11 @@ dependencies = [
     "dirsql>=0.3.12",
     "fastapi>=0.118",
     "uvicorn>=0.40",
+    # Embedding + semantic search. model2vec provides fast CPU-only
+    # static embeddings (potion-base-8M, 256-dim); duckdb hosts the
+    # embeddings table + array_cosine_distance for /search.
+    "model2vec>=0.3",
+    "duckdb>=1.1",
 ]
 
 [project.optional-dependencies]

@@ -8,14 +8,18 @@ replaced with a recording fake so a test never starts a real
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from fetcher import serve
+from fetcher.commands import embed as embed_mod
 
 
 class FakePopen:
@@ -179,6 +183,152 @@ def describe_get_log():
         r = client.get("/logs/fetch")
         assert r.status_code == 200
         assert r.json()["lines"] == []
+
+
+class _SearchFakeModel:
+    """Fake ``StaticModel`` for /search tests: one axis per keyword.
+
+    Encodes text into a fixed vector by counting occurrences of a small
+    keyword set on distinct axes. That lets a test assert semantic
+    ordering (a "diffusion" query is nearest a "diffusion" abstract)
+    without loading a real embedding model.
+    """
+
+    KEYWORDS = ("diffusion", "compiler", "protein", "quantum")
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        arr = np.zeros((len(texts), embed_mod.EMBED_DIM), dtype=np.float32)
+        for i, t in enumerate(texts):
+            lower = t.lower()
+            for j, kw in enumerate(self.KEYWORDS):
+                if kw in lower:
+                    arr[i, j] = 1.0
+            # Zero vectors would make cosine distance NaN; nudge unrelated
+            # texts onto a dedicated axis so distance stays defined.
+            if not arr[i, : len(self.KEYWORDS)].any():
+                arr[i, len(self.KEYWORDS)] = 1.0
+        return arr
+
+
+@pytest.fixture
+def search_data_dir(tmp_path: Path) -> Path:
+    """A data dir seeded with three papers + their embeddings.parquet.
+
+    Uses the deterministic keyword-axis fake so /search tests can assert
+    exact ordering. Real model2vec is never loaded in these tests.
+    """
+    d = tmp_path / "data"
+    d.mkdir()
+    papers = [
+        ("2401.00001", "Diffusion", "cs.LG",
+         "A paper about diffusion models."),
+        ("2401.00002", "Compiler", "cs.PL",
+         "A paper about compiler optimizations."),
+        ("2401.00003", "Protein", "q-bio.BM",
+         "A paper about protein folding."),
+    ]
+    for aid, title, primary, abstract in papers:
+        pd = d / aid
+        pd.mkdir()
+        (pd / "metadata.json").write_text(json.dumps({
+            "arxiv_id": aid,
+            "title": title,
+            "abstract": abstract,
+            "primary_category": primary,
+            "categories": [primary],
+            "authors": ["A"],
+            "announced_at": "2024-01-01",
+            "updated_at": "2024-01-01",
+            "html_url": f"https://arxiv.org/html/{aid}v1",
+        }))
+    embed_mod.run(
+        d, logging.getLogger("test.embed"), model=_SearchFakeModel()
+    )
+    return d
+
+
+@pytest.fixture
+def search_client(search_data_dir: Path, spawns, log_dir: Path):
+    """FastAPI test client wired to the seeded data dir + fake model.
+
+    The module-level ``serve._MODEL`` is patched inside a with-block so
+    a test's fake never leaks into subsequent tests.
+    """
+    spawn, _, _ = spawns
+    app = serve.make_app(
+        data_dir=search_data_dir, spawn=spawn, log_dir=log_dir
+    )
+    with patch.object(serve, "_MODEL", _SearchFakeModel()):
+        with TestClient(app) as c:
+            yield c
+
+
+def describe_post_search():
+    def it_returns_503_when_embeddings_parquet_is_missing(
+        client: TestClient
+    ):
+        # The default ``client`` fixture points at a nonexistent data dir;
+        # /search must refuse with 503 rather than crash.
+        r = client.post("/search", json={"q": "anything"})
+        assert r.status_code == 503
+        assert "embeddings.parquet" in r.json()["detail"]
+
+    def it_ranks_papers_by_semantic_distance_with_default_sql(
+        search_client: TestClient
+    ):
+        r = search_client.post(
+            "/search", json={"q": "diffusion models", "limit": 3}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 3
+        # The diffusion paper is nearest; the others follow.
+        assert body["rows"][0]["arxiv_id"] == "2401.00001"
+        assert body["rows"][0]["distance"] == pytest.approx(0.0, abs=1e-6)
+        # Row shape: arxiv_id, title, distance.
+        assert set(body["rows"][0]) == {"arxiv_id", "title", "distance"}
+
+    def it_honors_limit_on_default_sql(search_client: TestClient):
+        r = search_client.post(
+            "/search", json={"q": "diffusion", "limit": 1}
+        )
+        assert r.status_code == 200
+        assert r.json()["count"] == 1
+
+    def it_runs_custom_sql_with_where_and_orderby(
+        search_client: TestClient
+    ):
+        # Filter by primary_category via the papers view. Proves the
+        # metadata JOIN carries through and the client SQL runs verbatim.
+        r = search_client.post("/search", json={
+            "q": "biology",
+            "sql": (
+                "SELECT arxiv_id, primary_category, distance "
+                "FROM papers "
+                "WHERE primary_category LIKE 'q-bio%' "
+                "ORDER BY distance"
+            ),
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 1
+        assert body["rows"][0]["arxiv_id"] == "2401.00003"
+        assert body["rows"][0]["primary_category"] == "q-bio.BM"
+
+    def it_supports_aggregate_sql(search_client: TestClient):
+        r = search_client.post("/search", json={
+            "q": "anything",
+            "sql": "SELECT COUNT(*) AS n FROM papers",
+        })
+        assert r.status_code == 200
+        assert r.json()["rows"][0]["n"] == 3
+
+    def it_echoes_the_sql_that_ran(search_client: TestClient):
+        # Handy for debugging clients; the response body carries the
+        # exact string DuckDB executed, whether default or custom.
+        r = search_client.post("/search", json={"q": "x", "limit": 5})
+        assert r.status_code == 200
+        assert "ORDER BY distance" in r.json()["sql"]
 
 
 def describe_JobRegistry():

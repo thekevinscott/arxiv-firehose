@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import serve as serve_mod
 from .commands import classify as classify_mod
+from .commands import embed as embed_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
 from .commands import train_categories as train_categories_mod
@@ -45,6 +46,7 @@ __all__ = [
     "DEFAULT_SERVE_HOST",
     "DEFAULT_SERVE_PORT",
     "classify",
+    "embed",
     "fetch",
     "render_markdown",
     "serve",
@@ -192,6 +194,28 @@ def train_categories(
         base_url=base_url,
         cache_root=cache_root,
     )
+
+
+def embed(
+    data_dir: Path = DEFAULT_DATA_DIR,
+    config_file: Path | None = None,
+    verbose: bool = False,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Embed every paper missing from ``embeddings.parquet``.
+
+    A stage of ``fetch`` -- callable on its own for a manual backfill
+    or a targeted rerun (e.g. after a metadata correction). Idempotent:
+    a paper already in the parquet is skipped, so a re-run is a no-op
+    once everything is embedded.
+    """
+    log = get_logger(data_dir, "embed", verbose)
+    # config is unused today (model name is a constant) but kept in the
+    # signature to match the other SDK stage functions; a future toggle
+    # for model choice would land in [embed] without breaking callers.
+    _ = load_config(data_dir, config_file)
+    return embed_mod.run(data_dir, log, dry_run=dry_run, limit=limit)
 
 
 def status(

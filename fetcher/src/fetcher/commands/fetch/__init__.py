@@ -24,6 +24,7 @@ from pathlib import Path
 
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter
+from .. import embed
 from . import render, sync
 
 __all__ = ["render", "run", "sync"]
@@ -37,11 +38,18 @@ def run(
     dry_run: bool = False,
     converter: Converter = REAL_CONVERTER,
 ) -> dict[str, object]:
-    """Run the ingest pipeline: sync-metadata then render-markdown.
+    """Run the ingest pipeline: sync-metadata, render-markdown, embed.
 
-    Returns ``{"added", "updated", "render"}``. Each non-dry run appends a
-    record to ``data_dir/runs.jsonl`` -- a durable history (timing and
-    counts) for investigating what a given run did.
+    Returns ``{"added", "updated", "render", "embed"}``. Each non-dry
+    run appends a record to ``data_dir/runs.jsonl`` -- a durable history
+    (timing and counts) for investigating what a given run did.
+
+    embed runs last and is self-healing: it embeds every paper missing
+    from ``embeddings.parquet``, whether that paper was added today or
+    slipped through some earlier run. A single-run failure (model load,
+    duckdb, disk) is logged and the pipeline exits cleanly -- the next
+    day's cron will retry, so /search converges eventually rather than
+    failing loudly and blocking the whole ingest cycle.
     """
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
@@ -53,6 +61,12 @@ def run(
         data_dir, config, log,
         limit=limit, dry_run=dry_run, converter=converter,
     )
+    log.info("=== fetch: embed ===")
+    try:
+        embed_counts = embed.run(data_dir, log, dry_run=dry_run, limit=limit)
+    except Exception as exc:  # noqa: BLE001 -- embed must not abort fetch
+        log.error("embed failed (will retry next run): %s", exc)
+        embed_counts = {"embedded": 0, "skipped": 0, "total": 0, "error": str(exc)}
     log.info("=== fetch: done ===")
 
     if not dry_run:
@@ -63,8 +77,12 @@ def run(
             "added": added,
             "updated": updated,
             "render": counts,
+            "embed": embed_counts,
         }
         with (data_dir / "runs.jsonl").open("a") as fh:
             fh.write(json.dumps(record) + "\n")
 
-    return {"added": added, "updated": updated, "render": counts}
+    return {
+        "added": added, "updated": updated,
+        "render": counts, "embed": embed_counts,
+    }

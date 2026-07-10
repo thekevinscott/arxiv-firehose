@@ -42,9 +42,49 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from . import api
+from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
 JobKind = Literal["fetch", "classify"]
+
+# Default row cap when the client omits ``limit`` and doesn't write a
+# custom SQL. The cap only matters for the built-in ORDER BY distance
+# case; a user-supplied ``sql`` runs verbatim (with its own LIMIT if
+# any). Tailnet-only, no auth -- trusted caller.
+DEFAULT_SEARCH_LIMIT = 20
+
+def _build_papers_view_sql(parquet_path: str, meta_glob: str) -> str:
+    """CREATE VIEW SQL for the ``papers`` view exposed to /search.
+
+    DuckDB rejects prepared parameters in CREATE VIEW, so the two paths
+    are interpolated. They come from the server-side ``data_dir`` (a
+    trusted config value), never from the request body -- no injection
+    surface. Single quotes in each are escaped defensively.
+    """
+    parquet_lit = parquet_path.replace("'", "''")
+    glob_lit = meta_glob.replace("'", "''")
+    return f"""
+        CREATE OR REPLACE VIEW papers AS
+        SELECT
+            m.arxiv_id,
+            m.title,
+            m.abstract,
+            m.authors,
+            m.primary_category,
+            m.categories,
+            m.announced_at,
+            m.updated_at,
+            m.html_url,
+            array_cosine_distance(
+                e.embedding::FLOAT[{embed_mod.EMBED_DIM}],
+                (SELECT vec FROM _q)
+            ) AS distance
+        FROM read_parquet('{parquet_lit}') e
+        JOIN read_json_auto(
+            '{glob_lit}', union_by_name := true, filename := false
+        ) m
+          ON e.arxiv_id = m.arxiv_id
+    """
 
 # Per-job log file naming. We *also* write to the shared cron log so a
 # single ``tail -f .../classify-cron.log`` shows every run regardless of
@@ -173,6 +213,44 @@ class JobRegistry:
             del self._jobs[jid]
 
 
+class SearchRequest(BaseModel):
+    """Semantic search request body.
+
+    - ``q``: the natural-language query. Embedded server-side into a
+      256-dim vector and exposed to SQL as a pre-computed ``distance``
+      column on the ``papers`` view.
+    - ``sql``: optional DuckDB SQL executed verbatim against ``papers``.
+      Omitted -> ``SELECT arxiv_id, title, distance FROM papers
+      ORDER BY distance LIMIT :limit``. Arbitrary DuckDB is allowed
+      (WHERE on category / date, JOINs, window functions, etc.);
+      /search is tailnet-only so we don't sandbox the SQL.
+    - ``limit``: cap for the default SQL only. Ignored when ``sql`` is
+      set (put your own LIMIT in the SQL).
+    """
+
+    q: str
+    sql: str | None = None
+    limit: int = DEFAULT_SEARCH_LIMIT
+
+
+# Process-lifetime embedding model cache. The static model is ~30 MB
+# and loads in a few seconds; we amortize it across requests.
+_MODEL = None
+_MODEL_LOCK = threading.Lock()
+
+
+def _get_model():
+    """Return the module-level model2vec instance, loading it once."""
+    global _MODEL
+    if _MODEL is None:
+        with _MODEL_LOCK:
+            if _MODEL is None:
+                from model2vec import StaticModel
+
+                _MODEL = StaticModel.from_pretrained(embed_mod.MODEL_NAME)
+    return _MODEL
+
+
 def _default_log_dir(data_dir: Path) -> Path:
     """Where cron writes its logs.
 
@@ -288,6 +366,63 @@ def make_app(
     def get_log(kind: JobKind, lines: int = 50) -> dict[str, object]:
         log_path = logs / CRON_LOG_NAME.format(kind=kind)
         return {"path": str(log_path), "lines": _tail(log_path, lines)}
+
+    @app.post("/search")
+    def post_search(req: SearchRequest) -> dict[str, object]:
+        """Semantic search over paper abstracts, with arbitrary SQL sub-select.
+
+        The server embeds ``req.q`` once, builds a per-request DuckDB
+        session with a ``papers`` view that carries a pre-computed
+        ``distance`` column against that vector, then runs either the
+        default SQL (``ORDER BY distance LIMIT :limit``) or the
+        client-supplied ``req.sql`` verbatim. Rows come back as a list
+        of dicts.
+        """
+        import duckdb  # local: keep `fetcher status` fast
+
+        parquet = embed_mod.embeddings_path(data_dir)
+        if not parquet.exists():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "embeddings.parquet not built yet -- run `fetcher fetch` "
+                    "or wait for the next cron cycle"
+                ),
+            )
+
+        query_vec = [float(x) for x in _get_model().encode([req.q])[0]]
+        meta_glob = str(data_dir / "*" / "metadata.json")
+
+        con = duckdb.connect()
+        try:
+            # Query vector as a scalar the view can reference. Using a
+            # temp table (not a Python-side format-string) keeps the
+            # vector out of the SQL text and lets DuckDB constant-fold
+            # the subquery once for all rows.
+            con.execute(
+                f"CREATE TEMP TABLE _q AS "
+                f"SELECT ?::FLOAT[{embed_mod.EMBED_DIM}] AS vec",
+                [query_vec],
+            )
+            con.execute(_build_papers_view_sql(str(parquet), meta_glob))
+
+            if req.sql:
+                sql = req.sql
+                cur = con.execute(sql)
+            else:
+                sql = (
+                    "SELECT arxiv_id, title, distance "
+                    "FROM papers ORDER BY distance LIMIT ?"
+                )
+                cur = con.execute(sql, [int(req.limit)])
+            # Avoid pyarrow: it's an optional duckdb extra. cursor.description
+            # + fetchall() is the light-weight path -- fine for /search
+            # response sizes (10s to 100s of rows).
+            columns = [d[0] for d in cur.description]
+            rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+            return {"sql": sql, "count": len(rows), "rows": rows}
+        finally:
+            con.close()
 
     return app
 
