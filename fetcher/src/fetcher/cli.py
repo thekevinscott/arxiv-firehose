@@ -75,6 +75,32 @@ def classify(
     )
 
 
+@app.command("embed")
+def embed(
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+    verbose: bool = Verbose,
+    limit: Optional[int] = Limit,
+    dry_run: bool = DryRun,
+) -> None:
+    """Populate embeddings.parquet for every paper missing one.
+
+    Independent of ``render`` -- reads only ``metadata.json.abstract``.
+    Runs to convergence: papers already in the parquet are skipped.
+    Also runs as a stage inside ``fetch``; this entry point is for a
+    standalone backfill / manual retrigger.
+    """
+    counts = api.embed(
+        data_dir, config,
+        verbose=verbose, limit=limit, dry_run=dry_run,
+    )
+    typer.echo(
+        f"embedded={counts['embedded']} "
+        f"skipped={counts['skipped']} "
+        f"total={counts['total']}"
+    )
+
+
 @app.command("status")
 def status(
     data_dir: Path = DataDir,

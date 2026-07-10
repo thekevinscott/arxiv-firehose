@@ -45,7 +45,7 @@ from . import api
 from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
-JobKind = Literal["fetch", "classify"]
+JobKind = Literal["fetch", "classify", "embed"]
 
 # Default row cap when the client omits ``limit`` and doesn't write a
 # custom SQL. The cap only matters for the built-in ORDER BY distance
@@ -350,6 +350,17 @@ def make_app(
     @app.post("/classify", status_code=202)
     def post_classify() -> Job:
         return _start("classify")
+
+    @app.post("/embed", status_code=202)
+    def post_embed() -> Job:
+        """Trigger a standalone embed run.
+
+        Useful for the first backfill or after adding papers out-of-band,
+        when waiting for the next fetch cycle isn't worth it. Fetch also
+        runs embed as its last stage, so this is a shortcut, not a
+        prerequisite.
+        """
+        return _start("embed")
 
     @app.get("/jobs")
     def list_jobs() -> list[Job]:

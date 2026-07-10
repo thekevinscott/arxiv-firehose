@@ -108,6 +108,17 @@ def describe_post_classify():
         assert calls[0][0] == "classify"
 
 
+def describe_post_embed():
+    def it_spawns_and_returns_a_job(client: TestClient, spawns):
+        _, calls, _ = spawns
+        r = client.post("/embed")
+        assert r.status_code == 202
+        body = r.json()
+        assert body["kind"] == "embed"
+        assert body["log_path"].endswith("embed-cron.log")
+        assert calls[0][0] == "embed"
+
+
 def describe_duplicate_concurrent_jobs():
     def it_returns_409_with_existing_job_when_same_kind_in_flight(
         client: TestClient, spawns

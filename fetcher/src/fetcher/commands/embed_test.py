@@ -60,8 +60,12 @@ def data_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def log() -> logging.Logger:
     # Silent logger -- test assertions cover the behavior; log noise is
-    # captured by pytest's caplog when a test opts in.
-    return logging.getLogger("fetcher.embed.test")
+    # captured by pytest's caplog when a test opts in. Named *outside*
+    # the ``fetcher.embed`` hierarchy on purpose: api.embed configures
+    # ``fetcher.embed`` with ``propagate=False`` at runtime, so a child
+    # logger under that name would drop records before caplog's root
+    # handler ever saw them if any test triggered api.embed first.
+    return logging.getLogger("embed_test")
 
 
 def describe_embed_run():
@@ -107,7 +111,7 @@ def describe_embed_run():
         (data_dir / "2401.00002").mkdir()
         (data_dir / "2401.00002" / "metadata.json").write_text("{not json")
 
-        with caplog.at_level(logging.WARNING, logger="fetcher.embed.test"):
+        with caplog.at_level(logging.WARNING, logger="embed_test"):
             counts = embed.run(data_dir, log, model=FakeModel())
 
         assert counts == {"embedded": 1, "skipped": 0, "total": 1}
@@ -117,7 +121,7 @@ def describe_embed_run():
         _write_paper(data_dir, "2401.00001", "abstract one")
         _write_paper(data_dir, "2401.00002", "   ")  # blank
 
-        with caplog.at_level(logging.WARNING, logger="fetcher.embed.test"):
+        with caplog.at_level(logging.WARNING, logger="embed_test"):
             counts = embed.run(data_dir, log, model=FakeModel())
 
         assert counts == {"embedded": 1, "skipped": 0, "total": 1}
