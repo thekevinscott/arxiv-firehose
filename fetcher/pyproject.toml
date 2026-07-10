@@ -25,6 +25,10 @@ dependencies = [
     # embeddings table + array_cosine_distance for /search.
     "model2vec>=0.3",
     "duckdb>=1.1",
+    # duckdb's Python client needs pytz to hand TIMESTAMPTZ values back
+    # to Python; without it, /search SQL touching tz-aware timestamps
+    # (e.g. try_strptime with %z) crashes on fetch.
+    "pytz>=2024.1",
 ]
 
 [project.optional-dependencies]

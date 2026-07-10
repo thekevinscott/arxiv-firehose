@@ -341,6 +341,18 @@ def describe_post_search():
         assert r.status_code == 200
         assert "ORDER BY distance" in r.json()["sql"]
 
+    def it_returns_400_with_the_duckdb_message_for_bad_sql(
+        search_client: TestClient
+    ):
+        # Client SQL is arbitrary; a typo must come back as a 400 with
+        # DuckDB's own message, not an opaque 500.
+        r = search_client.post("/search", json={
+            "q": "x",
+            "sql": "SELECT nonexistent_column FROM papers",
+        })
+        assert r.status_code == 400
+        assert "nonexistent_column" in r.json()["detail"]
+
 
 def describe_JobRegistry():
     def it_records_pid_and_started_at():

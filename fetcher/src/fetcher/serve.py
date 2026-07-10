@@ -419,18 +419,25 @@ def make_app(
 
             if req.sql:
                 sql = req.sql
-                cur = con.execute(sql)
             else:
                 sql = (
                     "SELECT arxiv_id, title, distance "
                     "FROM papers ORDER BY distance LIMIT ?"
                 )
-                cur = con.execute(sql, [int(req.limit)])
-            # Avoid pyarrow: it's an optional duckdb extra. cursor.description
-            # + fetchall() is the light-weight path -- fine for /search
-            # response sizes (10s to 100s of rows).
-            columns = [d[0] for d in cur.description]
-            rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+            try:
+                cur = con.execute(sql, [int(req.limit)] if not req.sql else [])
+                # Avoid pyarrow: it's an optional duckdb extra.
+                # cursor.description + fetchall() is the light-weight path --
+                # fine for /search response sizes (10s to 100s of rows).
+                # fetchall() is inside the try: value conversion can also
+                # raise (e.g. TIMESTAMPTZ columns need pytz installed).
+                columns = [d[0] for d in cur.description]
+                rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+            except (duckdb.Error, ImportError) as exc:
+                # The SQL is client-authored: surface the real DuckDB error
+                # as a 400 instead of an opaque 500 -- the caller is
+                # debugging their query, not our server.
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             return {"sql": sql, "count": len(rows), "rows": rows}
         finally:
             con.close()
