@@ -25,7 +25,7 @@ DEFAULT_CACHE_DIR = Path(
     os.environ.get("ARXIV_FIREHOSE_CACHE_DIR")
     or Path.home() / ".cache" / "arxiv-firehose"
 )
-DEFAULT_CACHE_DURATION = timedelta(days=365)
+DEFAULT_CACHE_DURATION = timedelta(days=3650)
 
 # Default OpenAI-compatible LLM endpoint for classify. Points at a local
 # llama.cpp server (the tower's serves Qwen on :8180). Not user-configurable
@@ -36,8 +36,9 @@ DEFAULT_CLASSIFY_TIMEOUT_S = 60.0
 
 DEFAULT_CONFIG_TOML = """\
 [categories]
-# arxiv subject classifiers to track. RSS feed per category; daily cron
-# fetches each. Tuned for ML + adjacent (security, ethics, audio) + HCI.
+# arxiv subject classifiers to track. The daily cron queries the export
+# API for all of them in one day-slice per day of the lookback window.
+# Tuned for ML + adjacent (security, ethics, audio) + HCI.
 include = [
     "cs.LG",   # Machine Learning
     "cs.AI",   # Artificial Intelligence
@@ -66,8 +67,11 @@ latex_fallback = true
 pdf_fallback = true
 
 [ingest]
-# Skip papers older than this many days on first sync. 0 = take all of RSS.
-backfill_days = 0
+# Lookback window: every sync re-reads this many days of export-API day
+# slices (settled slices come from the ~forever cache, so only new or
+# missed days cost a real request). A missed cron day self-heals as long
+# as another run happens within the window.
+backfill_days = 90
 
 [classify]
 # Compiled coaxer prompt artifacts -- one per binary flag. Empty list
@@ -98,7 +102,7 @@ class FetchConfig(BaseModel):
 
 
 class IngestConfig(BaseModel):
-    backfill_days: int = 0
+    backfill_days: int = 90
 
 
 class ClassifyConfig(BaseModel):

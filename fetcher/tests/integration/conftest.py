@@ -38,9 +38,11 @@ FAKE_HTML_MARKDOWN = "# Markdown from HTML\n\n" + "converted body text. " * 20
 FAKE_LATEX_MARKDOWN = "# Markdown from LaTeX\n\n" + "converted body text. " * 20
 FAKE_PDF_MARKDOWN = "# Markdown from PDF\n\n" + "converted body text. " * 20
 
-# A data dir is bootstrapped with this config so a run touches exactly one
-# feed (the fixture only provides cs.LG); the SDK would otherwise write a
-# 3-category default.
+# A data dir is bootstrapped with this config so a run tracks exactly one
+# category (the fixture answers any day-slice query with the same Atom
+# body); the SDK would otherwise write a 14-category default. backfill_days
+# = 2 keeps the day window small: today plus the two days before it, so a
+# sync makes exactly three API calls.
 CONFIG_TOML = """\
 [categories]
 include = ["cs.LG"]
@@ -52,14 +54,16 @@ latex_fallback = true
 pdf_fallback = true
 
 [ingest]
-backfill_days = 0
+backfill_days = 2
 """
 
 
 def _resolve_fixture(url: str) -> Path | None:
-    if "rss.arxiv.org/rss/" in url:
-        category = url.rsplit("/rss/", 1)[1]
-        return FIXTURES / f"rss_{category}.xml"
+    if "export.arxiv.org/api/query" in url:
+        # Every day-slice query gets the same Atom body; sync's dedupe
+        # collapses the repeats, mirroring how overlapping real slices
+        # re-serve already-known papers.
+        return FIXTURES / "api_query.xml"
     if "/html/" in url:
         ident = url.rsplit("/html/", 1)[1].replace("/", "_")
         return FIXTURES / f"html_{ident}.html"

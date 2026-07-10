@@ -1,50 +1,72 @@
-"""Unit tests for sync's RSS entry parsing.
+"""Unit tests for sync's export-API entry parsing.
 
-arxiv RSS items carry an 'Announce Type' (new / cross / replace / replace-cross)
-in the description header. fetcher mirrors only papers first announced this
-week, so a non-'new' item -- a cross-list or a revision of an old paper -- must
-be dropped before it becomes a metadata folder.
+The API id carries the paper's latest version, and a cat: query matches
+cross-lists; the mirror keeps only v1 papers whose primary category is
+tracked. Timestamps are re-rendered in the corpus's RFC-2822 shape.
 """
 
-from fetcher.commands.fetch.sync import _announce_type, _parse_entry
+import time
+
+from fetcher.commands.fetch.sync import _parse_entry, _rfc2822
+
+TRACKED = {"cs.LG"}
 
 
-def describe__announce_type():
-    def it_extracts_a_new_announcement():
-        assert _announce_type("arXiv:2401.00001 Announce Type: new\nAbstract: x") == "new"
-
-    def it_extracts_a_hyphenated_type():
-        summary = "arXiv:2401.00001 Announce Type: replace-cross\nAbstract: x"
-        assert _announce_type(summary) == "replace-cross"
-
-    def it_is_empty_when_the_header_is_absent():
-        assert _announce_type("just an abstract, no header") == ""
-
-
-def _entry(announce: str) -> dict:
-    """An RSS entry dict the way feedparser hands it to _parse_entry."""
-    return {
-        "id": "oai:arXiv.org:2401.00001v1",
-        "title": "A Sample Paper",
-        "summary": f"arXiv:2401.00001 Announce Type: {announce}\nAbstract: hello",
-        "author": "Ada Lovelace",
-        "tags": [{"term": "cs.LG"}],
-        "published": "Mon, 01 Jan 2024 00:00:00 -0500",
+def _entry(**overrides) -> dict:
+    """An Atom entry dict the way feedparser hands it to _parse_entry."""
+    entry = {
+        "id": "http://arxiv.org/abs/2401.00001v1",
+        "title": "A  Sample\n Paper",
+        "summary": "hello",
+        "authors": [{"name": "Ada Lovelace"}, {"name": "Alan Turing"}],
+        "tags": [{"term": "cs.LG"}, {"term": "cs.AI"}],
+        "arxiv_primary_category": {"term": "cs.LG"},
+        "published_parsed": time.struct_time((2024, 1, 1, 12, 0, 0, 0, 1, 0)),
     }
+    entry.update(overrides)
+    return entry
 
 
 def describe__parse_entry():
-    def it_keeps_a_new_announcement():
-        rec = _parse_entry(_entry("new"))
+    def it_keeps_a_v1_paper_in_a_tracked_category():
+        rec = _parse_entry(_entry(), TRACKED)
         assert rec is not None
         assert rec.arxiv_id == "2401.00001"
+        assert rec.title == "A Sample Paper"
+        assert rec.authors == ["Ada Lovelace", "Alan Turing"]
+        assert rec.categories == {"cs.LG", "cs.AI"}
 
-    def it_drops_a_replacement():
-        # A revised version of an existing (often years-old) paper.
-        assert _parse_entry(_entry("replace")) is None
+    def it_drops_a_revision():
+        entry = _entry(id="http://arxiv.org/abs/2012.09999v3")
+        assert _parse_entry(entry, TRACKED) is None
 
-    def it_drops_a_replace_cross():
-        assert _parse_entry(_entry("replace-cross")) is None
+    def it_drops_a_cross_list_whose_primary_is_untracked():
+        entry = _entry(
+            arxiv_primary_category={"term": "math.OC"},
+            tags=[{"term": "math.OC"}, {"term": "cs.LG"}],
+        )
+        assert _parse_entry(entry, TRACKED) is None
 
-    def it_drops_a_cross_listing():
-        assert _parse_entry(_entry("cross")) is None
+    def it_falls_back_to_the_first_tag_for_the_primary():
+        entry = _entry()
+        del entry["arxiv_primary_category"]
+        rec = _parse_entry(entry, TRACKED)
+        assert rec is not None
+        assert rec.primary_category == "cs.LG"
+
+    def it_drops_garbage_ids():
+        assert _parse_entry(_entry(id="nonsense"), TRACKED) is None
+
+    def it_renders_published_in_rfc_2822():
+        rec = _parse_entry(_entry(), TRACKED)
+        assert rec is not None
+        assert rec.announced_at == "Mon, 01 Jan 2024 12:00:00 +0000"
+
+
+def describe__rfc2822():
+    def it_formats_a_struct_time_as_utc_rfc_2822():
+        parsed = time.struct_time((2026, 7, 8, 9, 0, 3, 2, 189, 0))
+        assert _rfc2822(parsed) == "Wed, 08 Jul 2026 09:00:03 +0000"
+
+    def it_is_empty_for_a_missing_timestamp():
+        assert _rfc2822(None) == ""

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: search_query=cat:cs.LG AND submittedDate:[...]</title>
+  <id>http://arxiv.org/api/fixture</id>
+  <updated>2024-01-02T00:00:00Z</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <updated>2024-01-01T12:00:00Z</updated>
+    <published>2024-01-01T12:00:00Z</published>
+    <title>A Sample Paper on Gradient Methods</title>
+    <summary>We present a sample paper used as an integration-test fixture. arXiv renders it as native HTML, so fetch converts that HTML to markdown.</summary>
+    <author><name>Ada Lovelace</name></author>
+    <author><name>Alan Turing</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+    <category term="cs.AI"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00002v1</id>
+    <updated>2024-01-01T12:05:00Z</updated>
+    <published>2024-01-01T12:05:00Z</published>
+    <title>Another Sample Paper With No Markdown Available</title>
+    <summary>A second fixture paper with no arxiv HTML and a PDF-only e-print endpoint, so neither conversion path yields markdown.</summary>
+    <author><name>Grace Hopper</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00003v1</id>
+    <updated>2024-01-01T12:10:00Z</updated>
+    <published>2024-01-01T12:10:00Z</published>
+    <title>A Third Sample Paper With LaTeX Source Only</title>
+    <summary>A third fixture paper with no arxiv HTML but a LaTeX e-print archive, exercising fetch's LaTeX-to-markdown fallback path.</summary>
+    <author><name>Edsger Dijkstra</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00004v1</id>
+    <updated>2024-01-01T12:12:00Z</updated>
+    <published>2024-01-01T12:12:00Z</published>
+    <title>A Fourth Sample Paper With No Representation At All</title>
+    <summary>A fourth fixture paper with no arxiv HTML, no e-print source, and no PDF -- every conversion path 404s, so it is the one paper that ends up with no rendered body.</summary>
+    <author><name>Katherine Johnson</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2012.09999v3</id>
+    <updated>2024-01-01T12:15:00Z</updated>
+    <published>2020-12-18T12:00:00Z</published>
+    <title>An Old Paper Revised Years Later</title>
+    <summary>A revision of a paper first announced in 2020. The API id carries v3; fetcher mirrors only first versions, so this must be dropped.</summary>
+    <author><name>Margaret Hamilton</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00005v1</id>
+    <updated>2024-01-01T12:20:00Z</updated>
+    <published>2024-01-01T12:20:00Z</published>
+    <title>A Cross-Listed Paper Whose Primary Lives Elsewhere</title>
+    <summary>A fixture paper whose primary category (math.OC) is outside the tracked set; it appears in the query results via its cs.LG cross-list and must be dropped.</summary>
+    <author><name>Emmy Noether</name></author>
+    <arxiv:primary_category term="math.OC"/>
+    <category term="math.OC"/>
+    <category term="cs.LG"/>
+  </entry>
+</feed>
