@@ -1,8 +1,8 @@
 """Unit tests for the bespoke single-paper pull command.
 
-Network seams (``download.fetch_id`` and the render fetchers) are patched;
-the happy path through real feed parsing and rendering is covered by the
-integration suite.
+The network seam (``download.fetch_id``) is patched; the happy path
+through real feed parsing is covered by the integration suite. Pull is
+metadata-only -- rendering never happens here.
 """
 
 import json
@@ -23,16 +23,11 @@ def _status_error(code: int) -> httpx.HTTPStatusError:
     return httpx.HTTPStatusError(f"{code}", request=request, response=response)
 
 
-def _pulled_paper(root, arxiv_id: str) -> None:
-    d = root / arxiv_id
-    d.mkdir()
-    (d / "metadata.json").write_text(json.dumps({"arxiv_id": arxiv_id}))
-    (d / "paper.md").write_text("# already here")
-
-
 def describe_run():
-    def it_skips_a_paper_already_on_disk(tmp_path):
-        _pulled_paper(tmp_path, "2401.00001")
+    def it_skips_a_paper_whose_metadata_is_already_on_disk(tmp_path):
+        d = tmp_path / "2401.00001"
+        d.mkdir()
+        (d / "metadata.json").write_text(json.dumps({"arxiv_id": "2401.00001"}))
 
         with patch.object(pull.download, "fetch_id") as fake:
             counts = pull.run(tmp_path, Config(), LOG, ["2401.00001"])

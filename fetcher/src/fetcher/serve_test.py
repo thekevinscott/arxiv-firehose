@@ -119,6 +119,19 @@ def describe_post_embed():
         assert calls[0][0] == "embed"
 
 
+def describe_post_render():
+    def it_spawns_and_returns_a_job(client: TestClient, spawns):
+        # Rendering paper bodies is explicit-only (not a fetch stage);
+        # this endpoint is the HTTP trigger for it.
+        _, calls, _ = spawns
+        r = client.post("/render")
+        assert r.status_code == 202
+        body = r.json()
+        assert body["kind"] == "render"
+        assert body["log_path"].endswith("render-cron.log")
+        assert calls[0][0] == "render"
+
+
 def describe_post_pull():
     def it_spawns_a_pull_job_carrying_the_requested_ids(
         client: TestClient, spawns

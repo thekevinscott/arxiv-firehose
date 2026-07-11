@@ -27,6 +27,17 @@ def describe_cli_embed():
         assert "total=0" in result.output
 
 
+def describe_cli_render():
+    def it_runs_render_dry_run_and_prints_counts(tmp_path: Path):
+        # Empty data dir: nothing to render, dry-run writes nothing.
+        result = runner.invoke(
+            app, ["render", "--data-dir", str(tmp_path), "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "html=0" in result.output
+        assert "absent=0" in result.output
+
+
 def describe_cli_pull():
     def it_runs_pull_dry_run_and_prints_counts(tmp_path: Path):
         # Dry run: plan only, no network, no writes.

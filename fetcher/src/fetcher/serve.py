@@ -45,7 +45,7 @@ from . import api
 from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
-JobKind = Literal["fetch", "classify", "embed", "pull"]
+JobKind = Literal["fetch", "classify", "embed", "pull", "render"]
 
 # Default row cap when the client omits ``limit`` and doesn't write a
 # custom SQL. The cap only matters for the built-in ORDER BY distance
@@ -380,6 +380,16 @@ def make_app(
         a 409 carrying the in-flight job.
         """
         return _start("pull", tuple(req.ids))
+
+    @app.post("/render", status_code=202)
+    def post_render() -> Job:
+        """Render markdown for every paper missing one, as a background job.
+
+        Explicit-only: no cron triggers rendering. This is the heavy
+        path (up to three paced downloads per paper), so it runs only
+        when a human asks for paper bodies.
+        """
+        return _start("render")
 
     @app.get("/jobs")
     def list_jobs() -> list[Job]:

@@ -4,11 +4,11 @@ Every command is a function here. The CLI (``cli.py``) is a thin typer
 wrapper over these. Each function handles config loading and logger setup
 itself, so a caller only supplies the data directory and options.
 
-Two cron-level commands -- ``fetch`` (ingest: sync metadata, then render
-markdown) and ``classify`` (label each paper against a taxonomy) -- plus
-``status`` for read-only counts. The fetch stages (``sync_metadata`` and
-``render_markdown``) are also exported here for granular use and tests;
-they are not exposed on the CLI.
+Two cron-level commands -- ``fetch`` (ingest: sync metadata, then embed
+abstracts) and ``classify`` (label each paper against a taxonomy) -- plus
+``status`` for read-only counts. Rendering markdown is explicit-only
+(``render_markdown`` / ``fetcher render`` / ``POST /render``); it is the
+heavy path and no auto-executing script triggers it.
 
 Network I/O flows through ``commands.fetch.download.fetch_day`` /
 ``fetch_paper`` / ``fetch_html``, each cachetta-cached. Tests stub them
@@ -84,9 +84,11 @@ def render_markdown(
 ) -> dict[str, int]:
     """Produce a markdown rendering for each known paper.
 
-    Returns a counts dict. A stage of ``fetch`` -- callable on its own for
-    tests or granular use, not exposed on the CLI. *converter* is a test
-    seam; it defaults to the real arxiv2md/pypandoc converter.
+    Returns a counts dict. Explicit-only: no cron or auto-executing
+    script calls this -- rendering is heavy (up to three paced downloads
+    per paper). Exposed as ``fetcher render`` and ``POST /render``.
+    *converter* is a test seam; it defaults to the real
+    arxiv2md/pypandoc converter.
     """
     log = get_logger(data_dir, "render", verbose)
     cfg = load_config(data_dir, config_file)
@@ -102,13 +104,15 @@ def fetch(
     verbose: bool = False,
     limit: int | None = None,
     dry_run: bool = False,
-    converter: Converter = REAL_CONVERTER,
 ) -> dict[str, object]:
-    """Run the daily ingest cycle: sync-metadata, then render markdown.
+    """Run the daily ingest cycle: sync-metadata, then embed abstracts.
 
-    Returns ``{"added", "updated", "render", "status"}``. Each non-dry run
+    Returns ``{"added", "updated", "embed", "status"}``. Each non-dry run
     appends a record to ``data_dir/runs.jsonl`` -- a durable history for
     investigating what a given run did.
+
+    Rendering markdown is NOT part of the cycle -- it is explicit-only
+    (``render_markdown``), since search/classify need only abstracts.
 
     Classify is a separate command (``api.classify``) on its own schedule;
     fetch does not trigger it. Keeping ingest and classify decoupled lets
@@ -117,10 +121,7 @@ def fetch(
     """
     log = get_logger(data_dir, "fetch", verbose)
     cfg = load_config(data_dir, config_file)
-    result = fetch_mod.run(
-        data_dir, cfg, log,
-        limit=limit, dry_run=dry_run, converter=converter,
-    )
+    result = fetch_mod.run(data_dir, cfg, log, limit=limit, dry_run=dry_run)
     result["status"] = "" if dry_run else status_mod.render(data_dir, config_file)
     return result
 
@@ -131,25 +132,21 @@ def pull(
     config_file: Path | None = None,
     verbose: bool = False,
     dry_run: bool = False,
-    converter: Converter = REAL_CONVERTER,
-) -> dict[str, object]:
+) -> dict[str, int]:
     """Mirror specific papers by arxiv id -- the bespoke retrieval path.
 
     Use case: tracing a paper's citations. Unlike the daily sync, no
-    category or version filter applies -- whatever is asked for by id is
-    mirrored (metadata + markdown) through the same render code paths
-    and download caches the daily ingest uses.
+    category or version filter applies -- whatever is asked for by id
+    gets its metadata mirrored. Metadata-only, like the daily ingest;
+    markdown arrives only via an explicit ``render_markdown`` call.
 
     Returns a counts dict (``pulled`` / ``existing`` / ``invalid`` /
-    ``not_found`` / ``failed``) plus a nested ``render`` tally.
-    Idempotent: a paper already carrying metadata.json and paper.md is
-    skipped before any network call.
+    ``not_found`` / ``failed``). Idempotent: a paper already carrying
+    metadata.json is skipped before any network call.
     """
     log = get_logger(data_dir, "pull", verbose)
     cfg = load_config(data_dir, config_file)
-    return fetch_mod.pull.run(
-        data_dir, cfg, log, ids, dry_run=dry_run, converter=converter,
-    )
+    return fetch_mod.pull.run(data_dir, cfg, log, ids, dry_run=dry_run)
 
 
 def classify(

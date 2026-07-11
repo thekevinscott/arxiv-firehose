@@ -4,11 +4,12 @@ A thin typer wrapper over the Python SDK in ``api.py``: each command parses
 flags and delegates. No behavior lives here -- new behavior goes in the SDK.
 
 Two cron-level commands -- ``fetch`` (daily ingest) and ``classify``
-(daily labeling) -- ``status`` for read-only counts, and
+(daily labeling) -- ``status`` for read-only counts, ``render`` (the
+explicit-only markdown pass; no cron triggers it), and
 ``train-categories`` (a developer command) that walks a labels root and
-compiles every category subdir into a prompt artifact. The fetch stages
-(``sync_metadata`` and ``render_markdown``) are SDK-only; for granular
-debugging call them from a REPL.
+compiles every category subdir into a prompt artifact. The remaining
+fetch stage (``sync_metadata``) is SDK-only; for granular debugging
+call it from a REPL.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ def fetch(
     limit: Optional[int] = Limit,
     dry_run: bool = DryRun,
 ) -> None:
-    """Run the daily ingest cycle: sync metadata, then render markdown."""
+    """Run the daily ingest cycle: sync metadata, then embed abstracts."""
     result = api.fetch(
         data_dir, config,
         verbose=verbose, limit=limit, dry_run=dry_run,
@@ -64,7 +65,7 @@ def pull(
     verbose: bool = Verbose,
     dry_run: bool = DryRun,
 ) -> None:
-    """Mirror specific papers by id (metadata + markdown), e.g. citations."""
+    """Mirror specific papers' metadata by id, e.g. citations."""
     result = api.pull(
         ids, data_dir, config,
         verbose=verbose, dry_run=dry_run,
@@ -73,6 +74,31 @@ def pull(
         f"pulled={result['pulled']} existing={result['existing']} "
         f"not_found={result['not_found']} invalid={result['invalid']} "
         f"failed={result['failed']}"
+    )
+
+
+@app.command("render")
+def render(
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+    verbose: bool = Verbose,
+    limit: Optional[int] = Limit,
+    dry_run: bool = DryRun,
+) -> None:
+    """Render markdown for every known paper missing one.
+
+    Explicit-only -- no cron or auto-executing script runs this. It is
+    the heavy path (up to three paced downloads per paper); search and
+    classify only need abstracts, which fetch already mirrors.
+    """
+    counts = api.render_markdown(
+        data_dir, config,
+        verbose=verbose, limit=limit, dry_run=dry_run,
+    )
+    typer.echo(
+        f"html={counts['html']} latex={counts['latex']} "
+        f"pdf={counts['pdf']} absent={counts['absent']} "
+        f"failed={counts['failed']} skipped={counts['skipped']}"
     )
 
 
