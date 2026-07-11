@@ -5,11 +5,25 @@ cross-lists; the mirror keeps only v1 papers whose primary category is
 tracked. Timestamps are re-rendered in the corpus's RFC-2822 shape.
 """
 
+import logging
 import time
+from unittest.mock import patch
 
+import httpx
+
+from fetcher.commands.fetch import sync
 from fetcher.commands.fetch.sync import _parse_entry, _rfc2822
+from fetcher.shared.config import Config, IngestConfig
 
 TRACKED = {"cs.LG"}
+
+EMPTY_FEED = b'<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+
+
+def _status_error(code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://export.arxiv.org/api/query")
+    response = httpx.Response(code, request=request)
+    return httpx.HTTPStatusError(f"{code}", request=request, response=response)
 
 
 def _entry(**overrides) -> dict:
@@ -61,6 +75,36 @@ def describe__parse_entry():
         rec = _parse_entry(_entry(), TRACKED)
         assert rec is not None
         assert rec.announced_at == "Mon, 01 Jan 2024 12:00:00 +0000"
+
+
+def describe_collect_records():
+    def it_defers_older_days_to_the_next_run_on_a_429():
+        cfg = Config(ingest=IngestConfig(backfill_days=5))
+        calls: list[str] = []
+
+        def fake(categories, day):
+            calls.append(day.isoformat())
+            if len(calls) >= 2:
+                raise _status_error(429)
+            return EMPTY_FEED
+
+        with patch.object(sync.download, "fetch_day", side_effect=fake):
+            sync.collect_records(cfg, logging.getLogger("test"))
+        assert len(calls) == 2
+
+    def it_keeps_walking_past_a_transient_failure():
+        cfg = Config(ingest=IngestConfig(backfill_days=5))
+        calls: list[str] = []
+
+        def fake(categories, day):
+            calls.append(day.isoformat())
+            if len(calls) == 2:
+                raise _status_error(503)
+            return EMPTY_FEED
+
+        with patch.object(sync.download, "fetch_day", side_effect=fake):
+            sync.collect_records(cfg, logging.getLogger("test"))
+        assert len(calls) == 6
 
 
 def describe__rfc2822():

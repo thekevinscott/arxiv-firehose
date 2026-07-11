@@ -144,6 +144,15 @@ def collect_records(
         try:
             content = download.fetch_day(categories, day)
         except httpx.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 429:
+                # Firing more requests into a 429 wall can extend the ban.
+                # Older days stay uncached, so the next run resumes here.
+                log.warning(
+                    "arxiv rate limited (429) at %s; deferring older days to the next run",
+                    day.isoformat(),
+                )
+                break
             log.error("day slice fetch failed for %s: %s", day.isoformat(), exc)
             continue
 

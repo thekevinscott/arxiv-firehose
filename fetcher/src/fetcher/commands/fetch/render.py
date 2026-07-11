@@ -31,6 +31,10 @@ from ...shared.convert import REAL_CONVERTER, Converter, _is_substantial
 from ...shared.paths import iter_paper_dirs, markdown_path
 
 
+def _rate_limited(exc: Exception) -> bool:
+    return getattr(getattr(exc, "response", None), "status_code", None) == 429
+
+
 def _http_error_summary(exc: Exception) -> str:
     """Condense a download exception to one short log-friendly line.
 
@@ -60,6 +64,8 @@ def _markdown_from_html(
     try:
         html = download.fetch_html(url)
     except httpx.HTTPStatusError as exc:
+        if _rate_limited(exc):
+            raise
         log.debug("html %s: %s", arxiv_id, _http_error_summary(exc))
         return None
     except httpx.HTTPError as exc:
@@ -84,6 +90,8 @@ def _markdown_from_latex(
     try:
         body = download.fetch_paper(url)
     except httpx.HTTPError as exc:
+        if _rate_limited(exc):
+            raise
         log.debug("tex  %s: %s", arxiv_id, _http_error_summary(exc))
         return None
     try:
@@ -114,6 +122,8 @@ def _markdown_from_pdf(
     try:
         body = download.fetch_paper(url)
     except httpx.HTTPError as exc:
+        if _rate_limited(exc):
+            raise
         log.warning("pdf  %s: %s", arxiv_id, _http_error_summary(exc))
         return None
     try:
@@ -192,6 +202,17 @@ def run(
                 marker.write_text("no markdown representation available\n")
                 counts["absent"] += 1
                 log.info("md   %s: no markdown available", arxiv_id)
+        except httpx.HTTPStatusError as exc:
+            if _rate_limited(exc):
+                # No marker, no failure count: the paper is deferred, not
+                # absent. Continuing would fire more requests into the ban.
+                log.warning(
+                    "arxiv rate limited (429) at %s; stopping render for this run",
+                    arxiv_id,
+                )
+                break
+            counts["failed"] += 1
+            log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
         except Exception as exc:  # noqa: BLE001
             counts["failed"] += 1
             log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
