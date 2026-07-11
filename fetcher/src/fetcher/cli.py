@@ -54,6 +54,28 @@ def fetch(
         typer.echo(result["status"])
 
 
+@app.command("pull")
+def pull(
+    ids: list[str] = typer.Argument(
+        ..., help="arxiv ids to mirror (e.g. 2401.12345 cs/0501001)."
+    ),
+    data_dir: Path = DataDir,
+    config: Optional[Path] = ConfigFile,
+    verbose: bool = Verbose,
+    dry_run: bool = DryRun,
+) -> None:
+    """Mirror specific papers by id (metadata + markdown), e.g. citations."""
+    result = api.pull(
+        ids, data_dir, config,
+        verbose=verbose, dry_run=dry_run,
+    )
+    typer.echo(
+        f"pulled={result['pulled']} existing={result['existing']} "
+        f"not_found={result['not_found']} invalid={result['invalid']} "
+        f"failed={result['failed']}"
+    )
+
+
 @app.command("classify")
 def classify(
     data_dir: Path = DataDir,

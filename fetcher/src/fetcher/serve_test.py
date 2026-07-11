@@ -52,11 +52,11 @@ def spawns(log_dir: Path):
     (a fresh running FakePopen) for individual spawns -- useful when a
     test needs the spawned process to look already-finished.
     """
-    calls: list[tuple[str, Path, Path]] = []
+    calls: list[tuple[str, Path, Path, tuple[str, ...]]] = []
     next_popens: list[FakePopen] = []
 
-    def spawn(kind, data_dir, log_path):
-        calls.append((kind, data_dir, log_path))
+    def spawn(kind, data_dir, log_path, args=()):
+        calls.append((kind, data_dir, log_path, tuple(args)))
         # Touch the file so /logs has something to tail in tests that
         # want to see the read path work end-to-end.
         log_path.touch()
@@ -117,6 +117,27 @@ def describe_post_embed():
         assert body["kind"] == "embed"
         assert body["log_path"].endswith("embed-cron.log")
         assert calls[0][0] == "embed"
+
+
+def describe_post_pull():
+    def it_spawns_a_pull_job_carrying_the_requested_ids(
+        client: TestClient, spawns
+    ):
+        _, calls, _ = spawns
+        r = client.post("/pull", json={"ids": ["2401.00001", "2012.09999"]})
+        assert r.status_code == 202
+        body = r.json()
+        assert body["kind"] == "pull"
+        assert body["log_path"].endswith("pull-cron.log")
+        kind, _, _, args = calls[0]
+        assert kind == "pull"
+        assert args == ("2401.00001", "2012.09999")
+
+    def it_rejects_an_empty_id_list(client: TestClient, spawns):
+        _, calls, _ = spawns
+        r = client.post("/pull", json={"ids": []})
+        assert r.status_code == 422
+        assert calls == []
 
 
 def describe_duplicate_concurrent_jobs():

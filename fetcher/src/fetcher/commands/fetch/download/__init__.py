@@ -14,8 +14,8 @@ The rate limiter lives inside ``http_get``, so it only sleeps on a real
 network call -- a cachetta hit costs nothing.
 """
 
-from .api import fetch_day
+from .api import fetch_day, fetch_id
 from .html import fetch_html
 from .paper import fetch_paper
 
-__all__ = ["fetch_day", "fetch_html", "fetch_paper"]
+__all__ = ["fetch_day", "fetch_html", "fetch_id", "fetch_paper"]

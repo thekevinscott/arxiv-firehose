@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: id_list=2012.09999</title>
+  <id>http://arxiv.org/api/fixture</id>
+  <updated>2024-01-02T00:00:00Z</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2012.09999v3</id>
+    <updated>2024-01-01T12:15:00Z</updated>
+    <published>2020-12-18T12:00:00Z</published>
+    <title>An Old Paper Revised Years Later</title>
+    <summary>A revised paper whose primary category lives outside the tracked set. Sync would drop it twice over (v3, untracked primary); a bespoke pull must keep it. It has no HTML, no e-print, and no PDF fixture, so every render path 404s.</summary>
+    <author><name>Margaret Hamilton</name></author>
+    <arxiv:primary_category term="math.OC"/>
+    <category term="math.OC"/>
+  </entry>
+</feed>

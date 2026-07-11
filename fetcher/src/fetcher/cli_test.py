@@ -25,3 +25,15 @@ def describe_cli_embed():
         assert result.exit_code == 0, result.output
         assert "embedded=0" in result.output
         assert "total=0" in result.output
+
+
+def describe_cli_pull():
+    def it_runs_pull_dry_run_and_prints_counts(tmp_path: Path):
+        # Dry run: plan only, no network, no writes.
+        result = runner.invoke(
+            app,
+            ["pull", "2401.00001", "--data-dir", str(tmp_path), "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "pulled=0" in result.output
+        assert not (tmp_path / "2401.00001").exists()

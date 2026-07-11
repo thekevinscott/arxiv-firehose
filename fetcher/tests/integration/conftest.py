@@ -59,6 +59,11 @@ backfill_days = 2
 
 
 def _resolve_fixture(url: str) -> Path | None:
+    # Before the day-slice branch: an id_list query is also an
+    # export.arxiv.org/api/query URL and would be shadowed by it.
+    if "id_list=" in url:
+        ident = url.split("id_list=", 1)[1].split("&", 1)[0].replace("/", "_")
+        return FIXTURES / f"api_id_{ident}.xml"
     if "export.arxiv.org/api/query" in url:
         # Every day-slice query gets the same Atom body; sync's dedupe
         # collapses the repeats, mirroring how overlapping real slices

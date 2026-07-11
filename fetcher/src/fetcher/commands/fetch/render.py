@@ -138,6 +138,70 @@ def _markdown_from_pdf(
     return md
 
 
+def render_paper_dir(
+    pd: Path,
+    data_dir: Path,
+    config: Config,
+    log: logging.Logger,
+    converter: Converter = REAL_CONVERTER,
+    dry_run: bool = False,
+) -> str:
+    """Render one paper folder into ``paper.md``; return the outcome key.
+
+    Outcomes: ``html``/``latex``/``pdf`` (markdown written via that path),
+    ``absent`` (every path failed; ``.no_markdown`` marker written),
+    ``skipped`` (unreadable metadata.json), ``dry-run``, ``failed``.
+
+    A 429 propagates as ``httpx.HTTPStatusError`` so the caller can stop
+    its loop instead of firing more requests into the ban; every other
+    error is logged and returned as an outcome.
+    """
+    try:
+        meta = json.loads((pd / "metadata.json").read_text())
+        arxiv_id = meta["arxiv_id"]
+        html_url = meta["html_url"]
+        source_url = meta["source_url"]
+        pdf_url = meta["pdf_url"]
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        log.error("skip %s: bad metadata.json", pd.name)
+        return "skipped"
+
+    if dry_run:
+        log.info("[dry-run] would fetch %s", arxiv_id)
+        return "dry-run"
+
+    marker = pd / ".no_markdown"
+    try:
+        # Primary: arxiv native HTML. Fallbacks, in order: the LaTeX
+        # e-print source, then the PDF.
+        md = _markdown_from_html(html_url, converter, log, arxiv_id)
+        source = "html"
+        if md is None and config.fetch.latex_fallback:
+            md = _markdown_from_latex(source_url, converter, log, arxiv_id)
+            source = "latex"
+        if md is None and config.fetch.pdf_fallback:
+            md = _markdown_from_pdf(pdf_url, converter, log, arxiv_id)
+            source = "pdf"
+
+        if md is not None:
+            size = _write_markdown(md, markdown_path(data_dir, arxiv_id))
+            marker.unlink(missing_ok=True)
+            log.info("md   %s: wrote paper.md (%d chars, via %s)",
+                     arxiv_id, size, source)
+            return source
+        marker.write_text("no markdown representation available\n")
+        log.info("md   %s: no markdown available", arxiv_id)
+        return "absent"
+    except httpx.HTTPStatusError as exc:
+        if _rate_limited(exc):
+            raise
+        log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
+        return "failed"
+    except Exception as exc:  # noqa: BLE001
+        log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
+        return "failed"
+
+
 def run(
     data_dir: Path,
     config: Config,
@@ -161,61 +225,29 @@ def run(
     for pd in paper_dirs:
         if limit is not None and processed >= limit:
             break
-        # A single unreadable metadata.json must not abort the whole run --
-        # log it, count it, and move on to the next paper.
         try:
-            meta = json.loads((pd / "metadata.json").read_text())
-            arxiv_id = meta["arxiv_id"]
-            html_url = meta["html_url"]
-            source_url = meta["source_url"]
-            pdf_url = meta["pdf_url"]
-        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            outcome = render_paper_dir(
+                pd, data_dir, config, log,
+                converter=converter, dry_run=dry_run,
+            )
+        except httpx.HTTPStatusError:
+            # Only a 429 propagates. No marker, no failure count: the
+            # paper is deferred, not absent. Continuing would fire more
+            # requests into the ban.
+            log.warning(
+                "arxiv rate limited (429) at %s; stopping render for this run",
+                pd.name,
+            )
+            break
+        # A single unreadable metadata.json must not abort the whole run --
+        # it is counted but does not consume the --limit budget.
+        if outcome == "skipped":
             counts["skipped"] += 1
-            log.error("skip %s: bad metadata.json", pd.name)
             continue
         processed += 1
-
-        if dry_run:
-            log.info("[dry-run] would fetch %s", arxiv_id)
+        if outcome == "dry-run":
             continue
-
-        marker = pd / ".no_markdown"
-        try:
-            # Primary: arxiv native HTML. Fallbacks, in order: the LaTeX
-            # e-print source, then the PDF.
-            md = _markdown_from_html(html_url, converter, log, arxiv_id)
-            source = "html"
-            if md is None and config.fetch.latex_fallback:
-                md = _markdown_from_latex(source_url, converter, log, arxiv_id)
-                source = "latex"
-            if md is None and config.fetch.pdf_fallback:
-                md = _markdown_from_pdf(pdf_url, converter, log, arxiv_id)
-                source = "pdf"
-
-            if md is not None:
-                size = _write_markdown(md, markdown_path(data_dir, arxiv_id))
-                marker.unlink(missing_ok=True)
-                counts[source] += 1
-                log.info("md   %s: wrote paper.md (%d chars, via %s)",
-                         arxiv_id, size, source)
-            else:
-                marker.write_text("no markdown representation available\n")
-                counts["absent"] += 1
-                log.info("md   %s: no markdown available", arxiv_id)
-        except httpx.HTTPStatusError as exc:
-            if _rate_limited(exc):
-                # No marker, no failure count: the paper is deferred, not
-                # absent. Continuing would fire more requests into the ban.
-                log.warning(
-                    "arxiv rate limited (429) at %s; stopping render for this run",
-                    arxiv_id,
-                )
-                break
-            counts["failed"] += 1
-            log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
-        except Exception as exc:  # noqa: BLE001
-            counts["failed"] += 1
-            log.error("md   %s: %s", arxiv_id, _http_error_summary(exc))
+        counts[outcome] += 1
 
     log.info("render done: %s", counts)
     return counts

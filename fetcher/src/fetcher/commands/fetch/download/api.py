@@ -52,6 +52,28 @@ def query_url(categories: tuple[str, ...], day: date) -> str:
     return API_URL.format(query=query, max_results=MAX_RESULTS)
 
 
+ID_URL = (
+    "https://export.arxiv.org/api/query"
+    "?id_list={arxiv_id}&start=0&max_results=1"
+)
+
+
+def id_query_url(arxiv_id: str) -> str:
+    # Legacy ids carry a '/' (cs/0501001); the API takes them verbatim.
+    return ID_URL.format(arxiv_id=quote(arxiv_id, safe="/"))
+
+
+def fetch_id(arxiv_id: str) -> bytes:
+    """Fetch one paper's metadata feed by id -- the bespoke pull path.
+
+    Deliberately uncached: pull skips the call entirely when the paper's
+    metadata.json is already on disk, so a cache layer here would never
+    be read. (An id_list body also isn't immutable -- it tracks the
+    paper's latest revision.)
+    """
+    return http.http_get(id_query_url(arxiv_id), 30.0)
+
+
 def _get(categories: tuple[str, ...], day_iso: str) -> bytes:
     url = query_url(categories, date.fromisoformat(day_iso))
     return http.http_get(url, 30.0)

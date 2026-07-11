@@ -48,6 +48,7 @@ __all__ = [
     "classify",
     "embed",
     "fetch",
+    "pull",
     "render_markdown",
     "serve",
     "status",
@@ -122,6 +123,33 @@ def fetch(
     )
     result["status"] = "" if dry_run else status_mod.render(data_dir, config_file)
     return result
+
+
+def pull(
+    ids: list[str],
+    data_dir: Path = DEFAULT_DATA_DIR,
+    config_file: Path | None = None,
+    verbose: bool = False,
+    dry_run: bool = False,
+    converter: Converter = REAL_CONVERTER,
+) -> dict[str, object]:
+    """Mirror specific papers by arxiv id -- the bespoke retrieval path.
+
+    Use case: tracing a paper's citations. Unlike the daily sync, no
+    category or version filter applies -- whatever is asked for by id is
+    mirrored (metadata + markdown) through the same render code paths
+    and download caches the daily ingest uses.
+
+    Returns a counts dict (``pulled`` / ``existing`` / ``invalid`` /
+    ``not_found`` / ``failed``) plus a nested ``render`` tally.
+    Idempotent: a paper already carrying metadata.json and paper.md is
+    skipped before any network call.
+    """
+    log = get_logger(data_dir, "pull", verbose)
+    cfg = load_config(data_dir, config_file)
+    return fetch_mod.pull.run(
+        data_dir, cfg, log, ids, dry_run=dry_run, converter=converter,
+    )
 
 
 def classify(

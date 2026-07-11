@@ -2,7 +2,12 @@
 
 from datetime import date
 
-from fetcher.commands.fetch.download.api import is_settled, looks_like_feed, query_url
+from fetcher.commands.fetch.download.api import (
+    id_query_url,
+    is_settled,
+    looks_like_feed,
+    query_url,
+)
 
 
 def describe_query_url():
@@ -12,6 +17,18 @@ def describe_query_url():
         assert "cat%3Acs.LG%20OR%20cat%3Acs.AI" in url
         assert "submittedDate%3A%5B202607080000%20TO%20202607082359%5D" in url
         assert url.endswith("&start=0&max_results=2000")
+
+
+def describe_id_query_url():
+    def it_builds_a_single_id_query():
+        assert id_query_url("2401.00001") == (
+            "https://export.arxiv.org/api/query"
+            "?id_list=2401.00001&start=0&max_results=1"
+        )
+
+    def it_keeps_a_legacy_id_slash_literal():
+        # The export API accepts legacy ids verbatim: id_list=cs/0501001.
+        assert "id_list=cs/0501001" in id_query_url("cs/0501001")
 
 
 def describe_is_settled():

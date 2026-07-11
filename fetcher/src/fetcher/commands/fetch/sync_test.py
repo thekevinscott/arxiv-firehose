@@ -76,6 +76,24 @@ def describe__parse_entry():
         assert rec is not None
         assert rec.announced_at == "Mon, 01 Jan 2024 12:00:00 +0000"
 
+    # tracked=None is the bespoke-pull mode: any paper the user asks for
+    # by id is accepted, whatever its version or primary category.
+    def it_keeps_any_version_for_a_bespoke_pull():
+        entry = _entry(id="http://arxiv.org/abs/2012.09999v3")
+        rec = _parse_entry(entry, None)
+        assert rec is not None
+        assert rec.version == 3
+        assert rec.pdf_url == "https://arxiv.org/pdf/2012.09999v3"
+
+    def it_keeps_an_untracked_primary_for_a_bespoke_pull():
+        entry = _entry(
+            arxiv_primary_category={"term": "math.OC"},
+            tags=[{"term": "math.OC"}],
+        )
+        rec = _parse_entry(entry, None)
+        assert rec is not None
+        assert rec.primary_category == "math.OC"
+
 
 def describe_collect_records():
     def it_defers_older_days_to_the_next_run_on_a_429():

@@ -80,8 +80,15 @@ def _primary_category(entry: feedparser.FeedParserDict, tags: list[str]) -> str:
 
 
 def _parse_entry(
-    entry: feedparser.FeedParserDict, tracked: set[str]
+    entry: feedparser.FeedParserDict, tracked: set[str] | None
 ) -> PaperRecord | None:
+    """Parse one Atom entry into a PaperRecord, or None to drop it.
+
+    *tracked* is the sync rulebook: with a category set, only v1 papers
+    whose primary category is tracked survive. ``tracked=None`` is the
+    bespoke-pull mode -- the caller asked for this paper by id, so any
+    version and any category is accepted.
+    """
     raw_id = entry.get("id", "") or entry.get("link", "")
     try:
         arxiv_id = id_from_entry_id(raw_id)
@@ -92,14 +99,14 @@ def _parse_entry(
     # The API id carries the latest version; anything past v1 is a revision
     # of an old paper resurfacing in the window. Mirror first versions only.
     version = version_from_entry_id(raw_id)
-    if version != 1:
+    if tracked is not None and version != 1:
         return None
 
     tags = [t.get("term", "") for t in entry.get("tags", []) if t.get("term")]
     primary = _primary_category(entry, tags)
     # A cat: query also matches cross-lists; keep only papers that live in
     # a tracked category, matching the RSS era's new-announcements-only rule.
-    if primary not in tracked:
+    if tracked is not None and primary not in tracked:
         return None
 
     authors = [a.get("name", "").strip() for a in entry.get("authors", [])]

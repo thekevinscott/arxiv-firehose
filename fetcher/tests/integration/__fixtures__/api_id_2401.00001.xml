@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: id_list=2401.00001</title>
+  <id>http://arxiv.org/api/fixture</id>
+  <updated>2024-01-02T00:00:00Z</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <updated>2024-01-01T12:00:00Z</updated>
+    <published>2024-01-01T12:00:00Z</published>
+    <title>A Sample Paper on Gradient Methods</title>
+    <summary>We present a sample paper used as an integration-test fixture. arXiv renders it as native HTML, so fetch converts that HTML to markdown.</summary>
+    <author><name>Ada Lovelace</name></author>
+    <author><name>Alan Turing</name></author>
+    <arxiv:primary_category term="cs.LG"/>
+    <category term="cs.LG"/>
+    <category term="cs.AI"/>
+  </entry>
+</feed>

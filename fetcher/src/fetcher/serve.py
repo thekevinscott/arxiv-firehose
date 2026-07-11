@@ -39,13 +39,13 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import api
 from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
-JobKind = Literal["fetch", "classify", "embed"]
+JobKind = Literal["fetch", "classify", "embed", "pull"]
 
 # Default row cap when the client omits ``limit`` and doesn't write a
 # custom SQL. The cap only matters for the built-in ORDER BY distance
@@ -213,6 +213,12 @@ class JobRegistry:
             del self._jobs[jid]
 
 
+class PullRequest(BaseModel):
+    """Pull request body: the arxiv ids to mirror."""
+
+    ids: list[str] = Field(min_length=1)
+
+
 class SearchRequest(BaseModel):
     """Semantic search request body.
 
@@ -269,17 +275,19 @@ def _spawn_cli(
     kind: JobKind,
     data_dir: Path,
     log_path: Path,
+    args: tuple[str, ...] = (),
     fetcher_bin: str = "fetcher",
 ) -> subprocess.Popen:
-    """Launch ``fetcher {kind} --data-dir DATA_DIR`` detached.
+    """Launch ``fetcher {kind} [ARGS...] --data-dir DATA_DIR`` detached.
 
+    *args* carries per-job positional arguments (pull's arxiv ids).
     ``start_new_session=True`` puts the child in its own process group so
     the API can restart without dragging classify down with it.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fh = log_path.open("ab")
     return subprocess.Popen(
-        [fetcher_bin, kind, "--data-dir", str(data_dir)],
+        [fetcher_bin, kind, *args, "--data-dir", str(data_dir)],
         stdout=fh,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
@@ -316,11 +324,11 @@ def make_app(
     registry = JobRegistry()
     logs = log_dir or _default_log_dir(data_dir)
 
-    def _start(kind: JobKind) -> Job:
+    def _start(kind: JobKind, args: tuple[str, ...] = ()) -> Job:
         log_path = logs / CRON_LOG_NAME.format(kind=kind)
         job, is_new = registry.add_unless_running(
             kind,
-            spawner=lambda: spawn(kind, data_dir, log_path),
+            spawner=lambda: spawn(kind, data_dir, log_path, args),
             log_path=log_path,
         )
         if not is_new:
@@ -361,6 +369,17 @@ def make_app(
         prerequisite.
         """
         return _start("embed")
+
+    @app.post("/pull", status_code=202)
+    def post_pull(req: PullRequest) -> Job:
+        """Mirror specific papers by arxiv id as a background job.
+
+        The bespoke retrieval path (e.g. tracing a paper's citations):
+        spawns ``fetcher pull ID... `` like /fetch spawns the daily
+        ingest. One pull at a time -- a second POST while one runs gets
+        a 409 carrying the in-flight job.
+        """
+        return _start("pull", tuple(req.ids))
 
     @app.get("/jobs")
     def list_jobs() -> list[Job]:

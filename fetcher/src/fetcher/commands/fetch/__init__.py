@@ -25,9 +25,9 @@ from pathlib import Path
 from ...shared.config import Config
 from ...shared.convert import REAL_CONVERTER, Converter
 from .. import embed
-from . import render, sync
+from . import pull, render, sync
 
-__all__ = ["render", "run", "sync"]
+__all__ = ["pull", "render", "run", "sync"]
 
 
 def run(
