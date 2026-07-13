@@ -1,38 +1,51 @@
 """dirsql schema + factory for the arxiv-firehose data dir.
 
-Until dirsql PR #220 (native-language config files) lands, the dirsql
-Rust CLI only accepts ``.dirsql.toml`` -- which can't parse the JSON
-inside ``metadata.json``/``classifications/*.json`` to expose fields as
-columns. So fetcher uses dirsql **in-process** through this Python
-factory.
+fetcher uses dirsql **in-process** through this Python factory: the
+per-table ``extract`` callbacks parse the JSON inside
+``metadata.json`` / ``classifications/*.json`` and turn it into columns.
+The equivalent ``.dirsql.toml`` ``on-file`` hooks would shell out once
+per file; the in-process path is a plain function call, so we keep it.
 
-Tables exposed:
+Tables exposed (no paper *content* -- no abstract text, no ``paper.md``
+body -- only metadata and presence markers):
 
     papers              -- one row per paper folder (from metadata.json)
+    metadata            -- EAV rows: (id, paper_id, key, value), one per
+                           metadata.json field except the abstract
     papers_categories   -- one row per (paper, category) outcome (from
                            data/<id>/classifications/<cat>.json)
     categories          -- one row per active category (from
                            ROOT/categories/<cat>.json, materialized by
                            classify.run from config.classify.prompts_dirs)
+    markdown            -- one row per data/<id>/paper.md (paper_id + bytes)
+    no_markdown         -- one row per data/<id>/.no_markdown marker
 
 The taxonomy of category ids lives in **two** mirrored places: the
 authored config (``[classify] prompts_dirs``) and the per-cat index
-files under ``ROOT/categories/`` that classify.run rewrites at the
-start of every run. Authoring stays in config; the index files exist
-solely so dirsql has a table to ``SELECT category_id FROM`` and
-``CROSS JOIN`` against ``papers``. Same pattern as ``papers`` (rows
-from per-paper ``metadata.json`` files written by sync) -- materialize
-derived state as files dirsql can scan.
+files under ``ROOT/categories/`` that classify.run rewrites at the start
+of every run. Same pattern as ``papers`` -- materialize derived state as
+files dirsql can scan.
 
 ``ROOT`` is the directory dirsql scans (defaults to the production
 location on tower; override with ``ARXIV_FIREHOSE_ROOT`` for local
 tests). The ``data_dir`` that the rest of fetcher passes around lives
 **inside** ROOT at ``ROOT/data`` -- pass ``data_dir.parent`` here.
+
+Persistence: ``build_app`` defaults to ``persist=True`` (SQLite cache at
+``<ROOT>/.dirsql/cache.db``) so a warm process re-scans only changed
+files. dirsql does **not** backfill a newly-added table from unchanged
+files, so a schema change would silently under-populate a warm cache.
+``build_app`` guards against that: it fingerprints the table set and
+wipes ``<ROOT>/.dirsql`` whenever the fingerprint changes, forcing one
+cold rescan after a deploy that alters the schema.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,9 +76,35 @@ def _extract_paper(path: str) -> list[dict]:
     arxiv_id = Path(path).parent.name
     return [{
         "arxiv_id": arxiv_id,
-        "abstract": meta.get("abstract", ""),
         "announced_at": _arxiv_id_to_iso(arxiv_id),
+        "primary_category": meta.get("primary_category"),
     }]
+
+
+# metadata.json keys never mirrored into the EAV ``metadata`` table:
+# ``arxiv_id`` is already the papers PK, and ``abstract`` is paper
+# *content* we deliberately keep out of the DB.
+_METADATA_SKIP_KEYS = frozenset({"arxiv_id", "abstract"})
+
+
+def _extract_metadata_kv(path: str) -> list[dict]:
+    """One EAV row per metadata.json field (except id/abstract).
+
+    List/dict values are JSON-encoded so the ``value`` column stays TEXT;
+    every scalar is stringified. ``id`` is omitted from each row so
+    dirsql's SQLite AUTOINCREMENT assigns it."""
+    meta = _read_json(path)
+    paper_id = Path(path).parent.name
+    rows = []
+    for key, value in meta.items():
+        if key in _METADATA_SKIP_KEYS:
+            continue
+        if isinstance(value, (list, dict)):
+            value = json.dumps(value, sort_keys=True)
+        elif value is not None:
+            value = str(value)
+        rows.append({"paper_id": paper_id, "key": key, "value": value})
+    return rows
 
 
 def _extract_paper_category(path: str) -> list[dict]:
@@ -92,47 +131,156 @@ def _extract_category(path: str) -> list[dict]:
     }]
 
 
-def build_app(root: str | os.PathLike | None = None) -> DirSQL:
-    """Build a DirSQL app rooted at *root* (or ``ARXIV_FIREHOSE_ROOT``,
-    or the production default). Must be called from inside an async
-    context -- DirSQL schedules its initial scan with
-    ``asyncio.ensure_future`` at construction time."""
-    root = str(root or os.environ.get("ARXIV_FIREHOSE_ROOT", DEFAULT_ROOT))
+def _extract_markdown(path: str) -> list[dict]:
+    """One row per paper.md: the paper id and the file size in bytes.
+
+    Reads no content -- ``status`` only needs presence and byte totals, so
+    the size comes straight from ``stat`` (empty files land as 0 and are
+    filtered in SQL)."""
+    return [{
+        "paper_id": Path(path).parent.name,
+        "size_bytes": os.path.getsize(path),
+    }]
+
+
+def _extract_marker(path: str) -> list[dict]:
+    return [{"paper_id": Path(path).parent.name}]
+
+
+# (ddl, glob, extract) for every table. The order is fingerprinted, so
+# keep it stable; append new tables at the end.
+_TABLE_SPECS = (
+    (
+        """CREATE TABLE papers (
+            arxiv_id         TEXT PRIMARY KEY,
+            announced_at     TEXT,
+            primary_category TEXT
+        )""",
+        "data/*/metadata.json",
+        _extract_paper,
+    ),
+    (
+        """CREATE TABLE metadata (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            paper_id TEXT NOT NULL,
+            key      TEXT NOT NULL,
+            value    TEXT
+        )""",
+        "data/*/metadata.json",
+        _extract_metadata_kv,
+    ),
+    # No composite PRIMARY KEY -- dirsql appends synthetic columns after
+    # the DDL, and SQLite forbids columns after a table-level constraint.
+    # Uniqueness comes from the one-file-per-(paper, category) layout.
+    (
+        """CREATE TABLE papers_categories (
+            paper_id    TEXT NOT NULL,
+            category_id TEXT NOT NULL,
+            output      INTEGER NOT NULL
+        )""",
+        "data/*/classifications/*.json",
+        _extract_paper_category,
+    ),
+    (
+        """CREATE TABLE categories (
+            category_id TEXT PRIMARY KEY,
+            prompts_dir TEXT
+        )""",
+        "categories/*.json",
+        _extract_category,
+    ),
+    (
+        """CREATE TABLE markdown (
+            paper_id   TEXT PRIMARY KEY,
+            size_bytes INTEGER NOT NULL
+        )""",
+        "data/*/paper.md",
+        _extract_markdown,
+    ),
+    (
+        "CREATE TABLE no_markdown (paper_id TEXT PRIMARY KEY)",
+        "data/*/.no_markdown",
+        _extract_marker,
+    ),
+)
+
+# Bump on any change to an ``extract`` callback's output shape that the
+# DDL alone doesn't capture (the fingerprint already covers ddl + glob).
+_SCHEMA_VERSION = 1
+
+
+def _fingerprint() -> str:
+    """Stable hash of the table set + schema version.
+
+    Changes whenever a DDL, glob, or the version constant changes -- the
+    signal ``build_app`` uses to decide the warm persist cache is stale."""
+    h = hashlib.sha256()
+    h.update(str(_SCHEMA_VERSION).encode())
+    for ddl, glob, _ in _TABLE_SPECS:
+        h.update(b"\0")
+        h.update(" ".join(ddl.split()).encode())
+        h.update(b"\0")
+        h.update(glob.encode())
+    return h.hexdigest()
+
+
+def _reconcile_persist_cache(root: Path) -> None:
+    """Wipe ``<root>/.dirsql`` when the schema fingerprint has changed.
+
+    dirsql only re-extracts files whose mtime moved, so a table added
+    since the cache was built would stay empty for every pre-existing
+    file. Clearing the cache on a fingerprint change forces one cold
+    rescan, repopulating every table from scratch."""
+    cache_dir = root / ".dirsql"
+    stamp = cache_dir / "schema_version"
+    want = _fingerprint()
+    if stamp.exists() and stamp.read_text().strip() == want:
+        return
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(want)
+
+
+def build_app(
+    root: str | os.PathLike | None = None, *, persist: bool = True
+) -> DirSQL:
+    """Build a DirSQL app rooted at *root* (or ``ARXIV_FIREHOSE_ROOT``, or
+    the production default). Must be called from inside an async context --
+    DirSQL schedules its initial scan with ``asyncio.ensure_future`` at
+    construction time.
+
+    With *persist* true (the default) the SQLite cache lives at
+    ``<root>/.dirsql/cache.db`` and is auto-invalidated on any schema
+    change (see :func:`_reconcile_persist_cache`)."""
+    root = Path(str(root or os.environ.get("ARXIV_FIREHOSE_ROOT", DEFAULT_ROOT)))
+    if persist:
+        _reconcile_persist_cache(root)
     return DirSQL(
-        root,
+        str(root),
         tables=[
-            Table(
-                ddl="""CREATE TABLE papers (
-                    arxiv_id     TEXT PRIMARY KEY,
-                    abstract     TEXT,
-                    announced_at TEXT
-                )""",
-                glob="data/*/metadata.json",
-                extract=_extract_paper,
-            ),
-            # No composite PRIMARY KEY -- dirsql appends synthetic
-            # columns after the DDL, and SQLite forbids columns after a
-            # table-level constraint. Uniqueness comes from the
-            # one-file-per-(paper, category) layout on disk.
-            Table(
-                ddl="""CREATE TABLE papers_categories (
-                    paper_id    TEXT NOT NULL,
-                    category_id TEXT NOT NULL,
-                    output      INTEGER NOT NULL
-                )""",
-                glob="data/*/classifications/*.json",
-                extract=_extract_paper_category,
-            ),
-            Table(
-                ddl="""CREATE TABLE categories (
-                    category_id TEXT PRIMARY KEY,
-                    prompts_dir TEXT
-                )""",
-                glob="categories/*.json",
-                extract=_extract_category,
-            ),
+            Table(ddl=ddl, glob=glob, extract=extract)
+            for ddl, glob, extract in _TABLE_SPECS
         ],
+        persist=persist,
     )
+
+
+def query(
+    sql: str, root: str | os.PathLike | None = None, *, persist: bool = True
+) -> list[dict]:
+    """Run *sql* against a fresh in-process dirsql app and return the rows.
+
+    The synchronous bridge every sync caller (status, embed, the CLI, the
+    HTTP endpoint) uses: it builds the app, waits for the initial scan,
+    runs one read-only query, and tears the app down -- all inside a
+    private event loop via ``asyncio.run``. dirsql's authorizer rejects
+    writes, so *sql* is effectively read-only."""
+    async def _run() -> list[dict]:
+        db = build_app(root, persist=persist)
+        await db.ready()
+        return await db.query(sql)
+
+    return asyncio.run(_run())
 
 
 # Every (paper, category) pair that has no classification file yet. The

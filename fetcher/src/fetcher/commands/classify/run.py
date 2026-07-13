@@ -25,7 +25,6 @@ Output: one JSON file per (paper, category) at
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -36,7 +35,7 @@ from coaxer import CoaxedPrompt
 
 from ...shared.atomic_write import atomic_write_json
 from ...shared.config import Config
-from ...shared.dirsql_schema import MISSING_PAIRS_SQL, build_app
+from ...shared.dirsql_schema import MISSING_PAIRS_SQL, query
 from ...shared.llm import llm
 from .coaxed import flag_name, load_coaxed, render_inputs
 from .http import http_classifier
@@ -89,7 +88,8 @@ def run(
     root = data_dir.parent
     _materialize_categories(root, coaxed_by_cat)
 
-    pairs = asyncio.run(_query_missing_pairs(root))
+    rows = query(MISSING_PAIRS_SQL, root)
+    pairs = [(r["paper_id"], r["category_id"]) for r in rows]
 
     if classifier is None:
         classifier = http_classifier(config.classify.model, llm)
@@ -139,20 +139,6 @@ def _materialize_categories(
             "prompts_dir": str(Path(coaxed._path).resolve()),
         }
         atomic_write_json(cats_dir / f"{cat_id}.json", payload)
-
-
-async def _query_missing_pairs(root: Path) -> list[tuple[str, str]]:
-    """Run the missing-pairs SQL against an in-process dirsql app.
-
-    Returns ``(paper_id, category_id)`` tuples for every pair without a
-    classification file on disk. The order is the SQL's
-    ``ORDER BY (paper_id, category_id)`` -- deterministic so
-    ``--limit`` is reproducible.
-    """
-    db = build_app(root)
-    await db.ready()
-    rows = await db.query(MISSING_PAIRS_SQL)
-    return [(r["paper_id"], r["category_id"]) for r in rows]
 
 
 def _load_coaxed_by_category(

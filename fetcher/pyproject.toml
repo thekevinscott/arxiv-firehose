@@ -50,10 +50,11 @@ wheel-exclude = ["**/*_test.py", "**/test_*.py", "**/conftest.py"]
 
 [tool.uv]
 # Per-package override for the global 3-day supply-chain delay (see
-# ~/.config/uv/uv.toml). cachetta is maintained by the same author as this
-# project; the staleness mitigation doesn't add value here, and 0.6.6
-# shipped the `hashed=True` API we depend on.
-exclude-newer-package = { cachetta = "0 days" }
+# ~/.config/uv/uv.toml). cachetta and dirsql are maintained by the same
+# author as this project; the staleness mitigation doesn't add value here.
+# cachetta 0.6.6 shipped the `hashed=True` API we depend on; dirsql 0.3.93+
+# fixed the multi-table fan-out this project's schema needs.
+exclude-newer-package = { cachetta = "0 days", dirsql = "0 days" }
 
 [dependency-groups]
 dev = [

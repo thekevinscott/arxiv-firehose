@@ -3,11 +3,12 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-07-07T14:02:22.015226915Z"
+exclude-newer = "2026-07-10T13:02:56.335792994Z"
 exclude-newer-span = "P3D"
 
 [options.exclude-newer-package]
-cachetta = { timestamp = "2026-07-10T14:02:22.015132715Z", span = "PT0S" }
+cachetta = { timestamp = "2026-07-13T13:02:56.335708563Z", span = "PT0S" }
+dirsql = { timestamp = "2026-07-13T13:02:56.335719334Z", span = "PT0S" }
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -545,20 +546,15 @@ wheels = [
 
 [[package]]
 name = "dirsql"
-version = "0.3.12"
+version = "0.3.96"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f6/f2/8f9d3f00b3462606c2ba6b3248c95c83f75f8c5fc9338fb49770484ac845/dirsql-0.3.12.tar.gz", hash = "sha256:7f3bd3540d26086f2fbe4e8c0e6c06df24c69dff32a6853fbcd8231d7ae78d55", size = 254607, upload-time = "2026-05-30T15:42:28.839Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/44/0e76e77990f136edf28769b896faf6b9e6073e50cc9e59083d8deaf06abb/dirsql-0.3.96.tar.gz", hash = "sha256:f8ca227343d52943e2e891a8dc001746d548419f585de4605f690c72236316e7", size = 278192, upload-time = "2026-07-13T12:43:02.794Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/42/41e56221aa520370897ef53cac65e0e3c207acbb4b8753f4482a303000a8/dirsql-0.3.12-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:cfaaa63e58c878fd70015cda27d26211d25178bcad173f76789a7727f596814e", size = 5497781, upload-time = "2026-05-30T15:42:12.353Z" },
-    { url = "https://files.pythonhosted.org/packages/7e/13/f8c7d64feb12bcc401d6075442ab2646d21a70c74a060b0af1df890ad3b3/dirsql-0.3.12-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:e733521d4bec93ac5b3c89f9f48f7c628c58b6a1f6acf7313c29831f888d65b6", size = 5239860, upload-time = "2026-05-30T15:42:13.889Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/be/3acb42d21f4ad94d55890ddd464dcd736ffaf650cbb2bfd7c5b80f50707c/dirsql-0.3.12-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:129f0729e1a4ff4e966f343461cac0c7d9dd5bdceace9ca9764ecf2d2fcfaa49", size = 5929434, upload-time = "2026-05-30T15:42:15.566Z" },
-    { url = "https://files.pythonhosted.org/packages/db/17/ab89f6cc19c929ef3e77033b32c86a2d0bc9061568d3e3a3cd2c8db36de0/dirsql-0.3.12-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:11bb6763122c18bce9706ea8d82d29490a41b38ef518e596d2cb9f0558219eb8", size = 6110070, upload-time = "2026-05-30T15:42:17.36Z" },
-    { url = "https://files.pythonhosted.org/packages/df/99/d1f18644731b807a21f97789321c86506222b9fbc07fe158d6ce56dfe261/dirsql-0.3.12-cp313-cp313-win_amd64.whl", hash = "sha256:a274ad030f16ee0c0086293f89d091771cbd5c1c7e429af092e661ef52ce82d2", size = 5023001, upload-time = "2026-05-30T15:42:19.251Z" },
-    { url = "https://files.pythonhosted.org/packages/20/74/74258c8bb7c5a2881fd33a13c5517549a228acf1a4eb686ecc035c0cc8a4/dirsql-0.3.12-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:3042cd6ac1c60f304edcd7942dbfd84e19238c963a0585f939bb76c1399ba2e8", size = 5498567, upload-time = "2026-05-30T15:42:20.845Z" },
-    { url = "https://files.pythonhosted.org/packages/65/03/9242574e177192cc6ac803cc203bc984c8945927104d56424277299ac600/dirsql-0.3.12-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:4635db54c32bf5dce9b06bd903638b0f1f720dab262527723333be855b4117b5", size = 5241277, upload-time = "2026-05-30T15:42:22.347Z" },
-    { url = "https://files.pythonhosted.org/packages/85/38/f75e4ba81a6cf07fa8041c74ff9d60538b723878c30b9c2a415a9cf332ed/dirsql-0.3.12-cp314-cp314-manylinux_2_34_aarch64.whl", hash = "sha256:d7c4e8732a37a7c6293715b69662c508bc71e4c995eb6a68caf3d238c90bfca6", size = 5928930, upload-time = "2026-05-30T15:42:24.078Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/51/1fb907416fa318117e3fbf452f26defbd150aef270b10e43f6c79ce34bc3/dirsql-0.3.12-cp314-cp314-manylinux_2_34_x86_64.whl", hash = "sha256:de68ebca8bc28ac88caa11505b786f7f0a15dc25f51354ac30c94c2153f88740", size = 6111915, upload-time = "2026-05-30T15:42:25.788Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/7c/5ad8b86d111b0b607b7d25e241cd2c93b478137beecc8148919f053a529f/dirsql-0.3.12-cp314-cp314-win_amd64.whl", hash = "sha256:96a586e6ca8a06b51812bdf512efbbbe500b4b0c917b4ab506e0a037d2577c27", size = 5022902, upload-time = "2026-05-30T15:42:27.391Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/a9/9cc62d1022b4e7f27df258f0c2eaaa8436841fad40125c11ba0b33c0832e/dirsql-0.3.96-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b987044a9e1dffe8de5afd49442e4d2e4122aa5149e6fa8e7abd06ca0cde8f5c", size = 5729775, upload-time = "2026-07-13T12:42:53.802Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/be/2f0a261d5c1a98649d6cab3674d195d9a2efc800bb22a988f4550386ceae/dirsql-0.3.96-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:650b50682029c939498532565fac976e09a90f4e2fb1e53c4003d04340233e43", size = 5477957, upload-time = "2026-07-13T12:42:56.386Z" },
+    { url = "https://files.pythonhosted.org/packages/52/54/571789a39aad2283b03d9359d6ba7556e76886ce7537080c42b31b6bc088/dirsql-0.3.96-cp311-abi3-manylinux_2_39_aarch64.whl", hash = "sha256:8ddfb9e27d9d017f2aa4e399fa52d216bfb86f795e26fed21c2176d6c1470db8", size = 6189430, upload-time = "2026-07-13T12:42:57.996Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/34/070c300a66e3572200901bb04ddbbb70793e65613526d2866133f6b667e8/dirsql-0.3.96-cp311-abi3-manylinux_2_39_x86_64.whl", hash = "sha256:a4a210a8700497e03b2c179b588b1526b7e73e49f6c4353e14edc24147a5b3ce", size = 6387810, upload-time = "2026-07-13T12:42:59.663Z" },
+    { url = "https://files.pythonhosted.org/packages/02/84/812181bb334daa8418e75a010bae78dd1c05eb14cb4572709adfd972ba48/dirsql-0.3.96-cp311-abi3-win_amd64.whl", hash = "sha256:7091fd7aa8f9a52ed3d8b35dd0e8de43a009cb8f93c0863eaa901a849abaf555", size = 5248188, upload-time = "2026-07-13T12:43:01.368Z" },
 ]
 
 [[package]]

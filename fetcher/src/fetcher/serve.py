@@ -239,6 +239,20 @@ class SearchRequest(BaseModel):
     limit: int = DEFAULT_SEARCH_LIMIT
 
 
+class SqlRequest(BaseModel):
+    """Read-only SQL against the dirsql schema.
+
+    ``sql`` runs verbatim against the tables defined in
+    ``shared.dirsql_schema`` (``papers``, ``metadata``,
+    ``papers_categories``, ``categories``, ``markdown``, ``no_markdown``).
+    dirsql's authorizer rejects any non-read statement, so this is the
+    metadata analogue of /search's DuckDB-over-embeddings surface --
+    tailnet-only, no sandbox beyond read-only.
+    """
+
+    sql: str
+
+
 # Process-lifetime embedding model cache. The static model is ~30 MB
 # and loads in a few seconds; we amortize it across requests.
 _MODEL = None
@@ -470,6 +484,27 @@ def make_app(
             return {"sql": sql, "count": len(rows), "rows": rows}
         finally:
             con.close()
+
+    @app.post("/sql")
+    def post_sql(req: SqlRequest) -> dict[str, object]:
+        """Run one read-only SQL statement against the dirsql schema.
+
+        The metadata counterpart to /search: /search owns the DuckDB
+        embeddings surface (vector distance over abstracts), while /sql
+        owns the sqlite dirsql surface (papers, metadata EAV, presence
+        and classification tables). dirsql scans ``data_dir.parent`` and
+        enforces read-only, so a write or a typo comes back as a 400
+        carrying the engine's own message rather than an opaque 500.
+        """
+        from .shared.dirsql_schema import query
+
+        try:
+            rows = query(req.sql, data_dir.parent)
+        except Exception as exc:  # noqa: BLE001 -- client-authored SQL:
+            # surface dirsql's own message (read-only rejection, parse
+            # error, unknown column) as a 400, not a 500.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"sql": req.sql, "count": len(rows), "rows": rows}
 
     return app
 

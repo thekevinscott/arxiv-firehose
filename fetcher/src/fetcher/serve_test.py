@@ -308,6 +308,55 @@ def search_client(search_data_dir: Path, spawns, log_dir: Path):
             yield c
 
 
+@pytest.fixture
+def sql_client(search_data_dir: Path, spawns, log_dir: Path):
+    """Client wired to the seeded data dir for /sql tests.
+
+    Reuses ``search_data_dir`` (three papers on disk) but needs no
+    embedding model: /sql reads the dirsql sqlite schema, not the
+    parquet.
+    """
+    spawn, _, _ = spawns
+    app = serve.make_app(
+        data_dir=search_data_dir, spawn=spawn, log_dir=log_dir
+    )
+    with TestClient(app) as c:
+        yield c
+
+
+def describe_post_sql():
+    def it_counts_papers_via_the_dirsql_schema(sql_client: TestClient):
+        r = sql_client.post(
+            "/sql", json={"sql": "SELECT COUNT(*) AS n FROM papers"}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 1
+        assert body["rows"][0]["n"] == 3
+
+    def it_reads_the_metadata_eav_table(sql_client: TestClient):
+        # title lives in the EAV table (abstract/arxiv_id are excluded).
+        r = sql_client.post("/sql", json={
+            "sql": "SELECT value FROM metadata "
+                   "WHERE key = 'title' ORDER BY value",
+        })
+        assert r.status_code == 200
+        titles = [row["value"] for row in r.json()["rows"]]
+        assert titles == ["Compiler", "Diffusion", "Protein"]
+
+    def it_rejects_a_write_with_400(sql_client: TestClient):
+        # dirsql's authorizer refuses non-read statements; the endpoint
+        # turns that into a 400 rather than a 500.
+        r = sql_client.post("/sql", json={"sql": "DELETE FROM papers"})
+        assert r.status_code == 400
+
+    def it_returns_400_for_bad_sql(sql_client: TestClient):
+        r = sql_client.post(
+            "/sql", json={"sql": "SELECT nonexistent FROM papers"}
+        )
+        assert r.status_code == 400
+
+
 def describe_post_search():
     def it_returns_503_when_embeddings_parquet_is_missing(
         client: TestClient
