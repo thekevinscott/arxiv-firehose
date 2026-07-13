@@ -257,15 +257,16 @@ class _SearchFakeModel:
 
 @pytest.fixture
 def search_data_dir(tmp_path: Path) -> Path:
-    """A data dir seeded with three papers + their embeddings.parquet.
+    """A data dir seeded with three papers + their embeddings.json.
 
     Uses the deterministic keyword-axis fake so /search tests can assert
     exact ordering. Real model2vec is never loaded in these tests.
     """
     d = tmp_path / "data"
     d.mkdir()
-    # announced_at is stored in the corpus's RFC-2822 shape; distinct dates
-    # let the announced_ts date-filter test assert a real slice.
+    # announced_at is stored in the corpus's RFC-2822 shape; the dirsql
+    # extract normalizes it to UTC ISO at index time, so distinct dates
+    # let the announced_at date-filter test assert a real slice.
     papers = [
         ("2401.00001", "Diffusion", "cs.LG",
          "A paper about diffusion models.", "Mon, 01 Jan 2024 00:00:00 +0000"),
@@ -317,7 +318,7 @@ def sql_client(search_data_dir: Path, spawns, log_dir: Path):
 
     Reuses ``search_data_dir`` (three papers on disk) but needs no
     embedding model: /sql reads the dirsql sqlite schema, not the
-    parquet.
+    embeddings.
     """
     spawn, _, _ = spawns
     app = serve.make_app(
@@ -361,14 +362,14 @@ def describe_post_sql():
 
 
 def describe_post_search():
-    def it_returns_503_when_embeddings_parquet_is_missing(
+    def it_returns_503_when_embeddings_file_is_missing(
         client: TestClient
     ):
         # The default ``client`` fixture points at a nonexistent data dir;
         # /search must refuse with 503 rather than crash.
         r = client.post("/search", json={"q": "anything"})
         assert r.status_code == 503
-        assert "embeddings.parquet" in r.json()["detail"]
+        assert "embeddings.json" in r.json()["detail"]
 
     def it_ranks_papers_by_semantic_distance_with_default_sql(
         search_client: TestClient
@@ -395,13 +396,13 @@ def describe_post_search():
     def it_runs_custom_sql_with_where_and_orderby(
         search_client: TestClient
     ):
-        # Filter by primary_category via the papers view. Proves the
+        # Filter by primary_category via the search relation. Proves the
         # metadata JOIN carries through and the client SQL runs verbatim.
         r = search_client.post("/search", json={
             "q": "biology",
             "sql": (
                 "SELECT arxiv_id, primary_category, distance "
-                "FROM papers "
+                "FROM search "
                 "WHERE primary_category LIKE 'q-bio%' "
                 "ORDER BY distance"
             ),
@@ -412,19 +413,19 @@ def describe_post_search():
         assert body["rows"][0]["arxiv_id"] == "2401.00003"
         assert body["rows"][0]["primary_category"] == "q-bio.BM"
 
-    def it_filters_by_the_derived_announced_ts_timestamp(
+    def it_filters_by_the_normalized_announced_at_iso(
         search_client: TestClient
     ):
-        # The view exposes a parsed announced_ts so callers filter by date
-        # without re-deriving the RFC-2822 strptime (the string column sorts
-        # lexically and silently leaks out-of-window rows). Only the Sep
-        # paper is on/after the June cutoff.
+        # announced_at is normalized to UTC ISO at index time, so a plain
+        # lexical string compare is a correct date filter (the RFC-2822
+        # form sorted lexically and silently leaked out-of-window rows).
+        # Only the Sep paper is on/after the June cutoff.
         r = search_client.post("/search", json={
             "q": "anything",
             "sql": (
-                "SELECT arxiv_id, announced_ts FROM papers "
-                "WHERE announced_ts >= TIMESTAMPTZ '2024-06-01' "
-                "ORDER BY announced_ts"
+                "SELECT arxiv_id, announced_at FROM search "
+                "WHERE announced_at >= '2024-06-01' "
+                "ORDER BY announced_at"
             ),
         })
         assert r.status_code == 200
@@ -434,26 +435,26 @@ def describe_post_search():
     def it_supports_aggregate_sql(search_client: TestClient):
         r = search_client.post("/search", json={
             "q": "anything",
-            "sql": "SELECT COUNT(*) AS n FROM papers",
+            "sql": "SELECT COUNT(*) AS n FROM search",
         })
         assert r.status_code == 200
         assert r.json()["rows"][0]["n"] == 3
 
     def it_echoes_the_sql_that_ran(search_client: TestClient):
         # Handy for debugging clients; the response body carries the
-        # exact string DuckDB executed, whether default or custom.
+        # exact statement that ran, whether default or custom.
         r = search_client.post("/search", json={"q": "x", "limit": 5})
         assert r.status_code == 200
         assert "ORDER BY distance" in r.json()["sql"]
 
-    def it_returns_400_with_the_duckdb_message_for_bad_sql(
+    def it_returns_400_with_the_engine_message_for_bad_sql(
         search_client: TestClient
     ):
         # Client SQL is arbitrary; a typo must come back as a 400 with
-        # DuckDB's own message, not an opaque 500.
+        # SQLite's own message, not an opaque 500.
         r = search_client.post("/search", json={
             "q": "x",
-            "sql": "SELECT nonexistent_column FROM papers",
+            "sql": "SELECT nonexistent_column FROM search",
         })
         assert r.status_code == 400
         assert "nonexistent_column" in r.json()["detail"]

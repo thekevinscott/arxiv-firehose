@@ -30,6 +30,7 @@ dev uses ``127.0.0.1``.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import threading
@@ -53,44 +54,35 @@ JobKind = Literal["fetch", "classify", "embed", "pull", "render"]
 # any). Tailnet-only, no auth -- trusted caller.
 DEFAULT_SEARCH_LIMIT = 20
 
-def _build_papers_view_sql(parquet_path: str, meta_glob: str) -> str:
-    """CREATE VIEW SQL for the ``papers`` view exposed to /search.
 
-    DuckDB rejects prepared parameters in CREATE VIEW, so the two paths
-    are interpolated. They come from the server-side ``data_dir`` (a
-    trusted config value), never from the request body -- no injection
-    surface. Single quotes in each are escaped defensively.
+def _build_search_cte(query_vec: list[float]) -> str:
+    """The ``WITH search AS (...)`` prefix the client SQL selects from.
+
+    Reconstructs a wide, per-request relation over the dirsql tables:
+    ``papers`` (arxiv_id, primary_category, ISO announced_at) LEFT JOINed
+    to the ``metadata`` EAV (pivoted for title/html_url) and JOINed to
+    ``embeddings`` for the vector. ``distance`` is sqlite-vec's
+    ``vec_distance_cosine`` against the query vector.
+
+    The vector is interpolated as a JSON array literal -- it's a list of
+    server-produced floats (never request text), so there's no injection
+    surface (mirrors the pattern in dirsql's search-by-meaning howto).
     """
-    parquet_lit = parquet_path.replace("'", "''")
-    glob_lit = meta_glob.replace("'", "''")
+    needle = json.dumps([round(float(x), 6) for x in query_vec])
     return f"""
-        CREATE OR REPLACE VIEW papers AS
-        SELECT
-            m.arxiv_id,
-            m.title,
-            m.abstract,
-            m.authors,
-            m.primary_category,
-            m.categories,
-            m.announced_at,
-            -- Derived, properly typed timestamp so callers can filter/sort
-            -- by date without re-deriving the RFC-2822 strptime themselves.
-            -- TRY_ (not strptime) so empty/legacy strings yield NULL, not an
-            -- error that aborts the whole query.
-            TRY_STRPTIME(
-                m.announced_at, '%a, %d %b %Y %H:%M:%S %z'
-            ) AS announced_ts,
-            m.updated_at,
-            m.html_url,
-            array_cosine_distance(
-                e.embedding::FLOAT[{embed_mod.EMBED_DIM}],
-                (SELECT vec FROM _q)
-            ) AS distance
-        FROM read_parquet('{parquet_lit}') e
-        JOIN read_json_auto(
-            '{glob_lit}', union_by_name := true, filename := false
-        ) m
-          ON e.arxiv_id = m.arxiv_id
+        WITH search AS (
+            SELECT
+                p.arxiv_id AS arxiv_id,
+                MAX(CASE WHEN m.key = 'title' THEN m.value END) AS title,
+                p.primary_category AS primary_category,
+                p.announced_at AS announced_at,
+                MAX(CASE WHEN m.key = 'html_url' THEN m.value END) AS html_url,
+                vec_distance_cosine(e.embedding, '{needle}') AS distance
+            FROM papers p
+            JOIN embeddings e ON e.paper_id = p.arxiv_id
+            LEFT JOIN metadata m ON m.paper_id = p.arxiv_id
+            GROUP BY p.arxiv_id
+        )
     """
 
 # Per-job log file naming. We *also* write to the shared cron log so a
@@ -230,15 +222,21 @@ class SearchRequest(BaseModel):
     """Semantic search request body.
 
     - ``q``: the natural-language query. Embedded server-side into a
-      256-dim vector and exposed to SQL as a pre-computed ``distance``
-      column on the ``papers`` view.
-    - ``sql``: optional DuckDB SQL executed verbatim against ``papers``.
-      Omitted -> ``SELECT arxiv_id, title, distance FROM papers
-      ORDER BY distance LIMIT :limit``. Arbitrary DuckDB is allowed
-      (WHERE on category / date, JOINs, window functions, etc.);
-      /search is tailnet-only so we don't sandbox the SQL.
+      256-dim vector; the server wraps the query in a ``WITH search AS
+      (...)`` CTE that carries a pre-computed ``distance`` column
+      (sqlite-vec ``vec_distance_cosine``) plus paper metadata.
+    - ``sql``: optional read-only SQLite SELECT run verbatim against the
+      ``search`` relation. Omitted -> ``SELECT arxiv_id, title, distance
+      FROM search ORDER BY distance LIMIT :limit``. Arbitrary SELECT is
+      allowed (WHERE on category / ISO announced_at, aggregates, etc.);
+      /search is tailnet-only so we don't sandbox the SQL. Must be a
+      single trailing SELECT -- a client-supplied leading ``WITH`` would
+      collide with the server's ``WITH search`` prefix.
     - ``limit``: cap for the default SQL only. Ignored when ``sql`` is
       set (put your own LIMIT in the SQL).
+
+    ``search`` columns: ``arxiv_id``, ``title``, ``primary_category``,
+    ``announced_at`` (parsed ISO-8601 UTC), ``html_url``, ``distance``.
     """
 
     q: str
@@ -432,76 +430,55 @@ def make_app(
     def post_search(req: SearchRequest) -> dict[str, object]:
         """Semantic search over paper abstracts, with arbitrary SQL sub-select.
 
-        The server embeds ``req.q`` once, builds a per-request DuckDB
-        session with a ``papers`` view that carries a pre-computed
-        ``distance`` column against that vector, then runs either the
-        default SQL (``ORDER BY distance LIMIT :limit``) or the
-        client-supplied ``req.sql`` verbatim. Rows come back as a list
-        of dicts.
+        The server embeds ``req.q`` once, prepends a ``WITH search AS
+        (...)`` CTE that carries a pre-computed sqlite-vec ``distance``
+        column against that vector, then runs either the default tail
+        (``SELECT ... FROM search ORDER BY distance LIMIT :limit``) or the
+        client-supplied ``req.sql`` after the CTE. One dirsql/SQLite
+        statement, read-only -- the same surface as /sql.
         """
-        import duckdb  # local: keep `fetcher status` fast
+        from .shared.dirsql_schema import query as dirsql_query
 
-        parquet = embed_mod.embeddings_path(data_dir)
-        if not parquet.exists():
+        if not embed_mod.embeddings_path(data_dir).exists():
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "embeddings.parquet not built yet -- run `fetcher fetch` "
-                    "or wait for the next cron cycle"
+                    "embeddings.json not built yet -- run `fetcher embed` "
+                    "(or `fetcher fetch`) or wait for the next cron cycle"
                 ),
             )
 
         query_vec = [float(x) for x in _get_model().encode([req.q])[0]]
-        meta_glob = str(data_dir / "*" / "metadata.json")
+        cte = _build_search_cte(query_vec)
 
-        con = duckdb.connect()
-        try:
-            # Query vector as a scalar the view can reference. Using a
-            # temp table (not a Python-side format-string) keeps the
-            # vector out of the SQL text and lets DuckDB constant-fold
-            # the subquery once for all rows.
-            con.execute(
-                f"CREATE TEMP TABLE _q AS "
-                f"SELECT ?::FLOAT[{embed_mod.EMBED_DIM}] AS vec",
-                [query_vec],
+        if req.sql:
+            tail = req.sql
+        else:
+            tail = (
+                "SELECT arxiv_id, title, distance "
+                f"FROM search ORDER BY distance LIMIT {int(req.limit)}"
             )
-            con.execute(_build_papers_view_sql(str(parquet), meta_glob))
+        sql = f"{cte}\n{tail}"
 
-            if req.sql:
-                sql = req.sql
-            else:
-                sql = (
-                    "SELECT arxiv_id, title, distance "
-                    "FROM papers ORDER BY distance LIMIT ?"
-                )
-            try:
-                cur = con.execute(sql, [int(req.limit)] if not req.sql else [])
-                # Avoid pyarrow: it's an optional duckdb extra.
-                # cursor.description + fetchall() is the light-weight path --
-                # fine for /search response sizes (10s to 100s of rows).
-                # fetchall() is inside the try: value conversion can also
-                # raise (e.g. TIMESTAMPTZ columns need pytz installed).
-                columns = [d[0] for d in cur.description]
-                rows = [dict(zip(columns, r)) for r in cur.fetchall()]
-            except (duckdb.Error, ImportError) as exc:
-                # The SQL is client-authored: surface the real DuckDB error
-                # as a 400 instead of an opaque 500 -- the caller is
-                # debugging their query, not our server.
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            return {"sql": sql, "count": len(rows), "rows": rows}
-        finally:
-            con.close()
+        try:
+            rows = dirsql_query(sql, data_dir.parent)
+        except Exception as exc:  # noqa: BLE001 -- client-authored SQL:
+            # surface dirsql/SQLite's own message (parse error, unknown
+            # column, read-only rejection) as a 400, not an opaque 500.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"sql": sql, "count": len(rows), "rows": rows}
 
     @app.post("/sql")
     def post_sql(req: SqlRequest) -> dict[str, object]:
         """Run one read-only SQL statement against the dirsql schema.
 
-        The metadata counterpart to /search: /search owns the DuckDB
-        embeddings surface (vector distance over abstracts), while /sql
-        owns the sqlite dirsql surface (papers, metadata EAV, presence
-        and classification tables). dirsql scans ``data_dir.parent`` and
-        enforces read-only, so a write or a typo comes back as a 400
-        carrying the engine's own message rather than an opaque 500.
+        The general-purpose counterpart to /search: both ride the same
+        dirsql/SQLite surface, but /search wraps the query in a vector
+        CTE while /sql runs the raw statement against every table
+        (papers, metadata EAV, embeddings, presence and classification
+        tables). dirsql scans ``data_dir.parent`` and enforces read-only,
+        so a write or a typo comes back as a 400 carrying the engine's
+        own message rather than an opaque 500.
         """
         from .shared.dirsql_schema import query
 

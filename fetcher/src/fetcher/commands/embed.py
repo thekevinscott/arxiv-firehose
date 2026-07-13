@@ -1,16 +1,19 @@
-"""embed: populate ``embeddings.parquet`` at the data-dir root.
+"""embed: populate ``embeddings.json`` at the data-dir root.
 
 One row per paper. The invariant is convergence, not correctness of any
 single run: every paper whose arxiv_id is not yet in
-``embeddings.parquet`` gets embedded on the next call -- new arrivals
+``embeddings.json`` gets embedded on the next call -- new arrivals
 from today's ``sync-metadata`` and historical gaps go through the same
 "missing → embed" path. There is no ``--force`` in the common flow;
 running to convergence is what we want by default.
 
-Storage: a single parquet at ``data_dir/embeddings.parquet`` with
-columns ``(arxiv_id VARCHAR, embedding FLOAT[256])``. Rewriting the
-whole file each run is fine at 10 K rows (~10 MB) and lets us keep the
-file atomic via ``.part + rename``.
+Storage: a single JSON array at ``data_dir/embeddings.json``, one object
+per paper: ``{"arxiv_id": str, "embedding": [float, ...]}`` (256 dims,
+rounded to 6 decimals). dirsql scans this file into the ``embeddings``
+table (see ``shared/dirsql_schema.py``), where sqlite-vec's
+``vec_distance_cosine`` powers ``/search`` -- the same SQLite surface as
+``/sql``, no separate engine. Rewriting the whole file each run is fine
+at ~11 K rows (~25 MB) and keeps the write atomic via ``.part + rename``.
 
 Model: model2vec ``potion-base-8M`` -- static, CPU-only, 256-dim, fast.
 Loaded lazily so ``import fetcher`` (used by status, sync-metadata,
@@ -27,32 +30,31 @@ import json
 import logging
 from pathlib import Path
 
-import duckdb
-
+from ..shared.atomic_write import atomic_write_text
 from ..shared.paths import iter_paper_dirs
 
 MODEL_NAME = "minishlab/potion-base-8M"
 EMBED_DIM = 256
-EMBEDDINGS_FILE = "embeddings.parquet"
+EMBEDDINGS_FILE = "embeddings.json"
 
 
 def embeddings_path(data_dir: Path) -> Path:
-    """The consolidated embeddings parquet at the data-dir root."""
+    """The consolidated embeddings JSON at the data-dir root."""
     return data_dir / EMBEDDINGS_FILE
 
 
-def _existing_ids(data_dir: Path) -> set[str]:
-    parquet = embeddings_path(data_dir)
-    if not parquet.exists():
-        return set()
-    con = duckdb.connect()
+def _read_rows(data_dir: Path) -> list[dict]:
+    """Every ``{"arxiv_id", "embedding"}`` row in the current file (or [])."""
+    path = embeddings_path(data_dir)
+    if not path.exists():
+        return []
     try:
-        rows = con.execute(
-            "SELECT arxiv_id FROM read_parquet(?)", [str(parquet)]
-        ).fetchall()
-    finally:
-        con.close()
-    return {r[0] for r in rows}
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # A corrupt file self-heals: treat as empty so this run re-embeds
+        # everything and rewrites it atomically.
+        return []
+    return rows if isinstance(rows, list) else []
 
 
 def _iter_pending(
@@ -78,8 +80,8 @@ def _iter_pending(
             continue
         # The paper folder is named by the slugified arxiv id; metadata's
         # own arxiv_id can carry the legacy 'archive/NNN' form. Prefer
-        # the folder name as the row key -- it's what /search will look
-        # up when joining against read_json_auto('data/*/metadata.json').
+        # the folder name as the row key -- it's what the embeddings table
+        # joins against papers.arxiv_id on.
         abstract = (meta.get("abstract") or "").strip()
         if not abstract:
             log.warning("embed skip %s: empty abstract", arxiv_id)
@@ -95,47 +97,26 @@ def _load_model():
     return StaticModel.from_pretrained(MODEL_NAME)
 
 
-def _write_parquet(data_dir: Path, ids: list[str], vecs) -> None:
-    """Merge new rows with any existing parquet and rewrite atomically.
+def _write_embeddings(
+    data_dir: Path, prior: list[dict], ids: list[str], vecs
+) -> None:
+    """Merge new rows with the prior file and rewrite atomically.
 
-    UNION ALL BY NAME: prior arxiv_ids were filtered out upstream via
-    ``existing``, so the merge cannot produce duplicates. The cast to
-    ``FLOAT[EMBED_DIM]`` is required because DuckDB's parquet reader
-    surfaces fixed-size array columns as variable-length ``FLOAT[]``.
+    Prior arxiv_ids were filtered out upstream via ``existing``, so the
+    merge cannot produce duplicates. Vectors are stored as plain JSON
+    arrays (rounded to 6 decimals) -- sqlite-vec reads JSON vectors
+    directly, so no binary encoding is needed. Compact separators keep
+    the ~11 K-row file small.
     """
-    parquet = embeddings_path(data_dir)
-    tmp = parquet.with_name(parquet.name + ".part")
-
-    con = duckdb.connect()
-    try:
-        con.execute(
-            f"CREATE TABLE new (arxiv_id VARCHAR, embedding FLOAT[{EMBED_DIM}])"
+    rows = list(prior)
+    for aid, vec in zip(ids, vecs):
+        rows.append(
+            {"arxiv_id": aid, "embedding": [round(float(x), 6) for x in vec]}
         )
-        con.executemany(
-            "INSERT INTO new VALUES (?, ?)",
-            [(aid, [float(x) for x in vec]) for aid, vec in zip(ids, vecs)],
-        )
-        if parquet.exists():
-            con.execute(
-                f"CREATE TABLE prior AS "
-                f"SELECT arxiv_id, "
-                f"       embedding::FLOAT[{EMBED_DIM}] AS embedding "
-                f"FROM read_parquet(?)",
-                [str(parquet)],
-            )
-            con.execute(
-                "COPY (SELECT * FROM prior "
-                "      UNION ALL BY NAME "
-                "      SELECT * FROM new) "
-                "TO ? (FORMAT 'parquet')",
-                [str(tmp)],
-            )
-        else:
-            con.execute("COPY new TO ? (FORMAT 'parquet')", [str(tmp)])
-    finally:
-        con.close()
-
-    tmp.rename(parquet)
+    atomic_write_text(
+        embeddings_path(data_dir),
+        json.dumps(rows, separators=(",", ":")),
+    )
 
 
 def run(
@@ -146,12 +127,12 @@ def run(
     limit: int | None = None,
     model=None,
 ) -> dict[str, int]:
-    """Embed every paper missing from ``embeddings.parquet``.
+    """Embed every paper missing from ``embeddings.json``.
 
     Returns ``{"embedded", "skipped", "total"}``:
     - embedded -- rows added this run
-    - skipped  -- rows already in the parquet at the start of the run
-    - total    -- row count in the resulting parquet
+    - skipped  -- rows already in the file at the start of the run
+    - total    -- row count in the resulting file
 
     Papers with unreadable metadata or an empty abstract are counted as
     neither embedded nor skipped -- they log a WARNING and re-surface on
@@ -160,7 +141,8 @@ def run(
     *model* is a test seam: any object with ``encode(list[str]) -> ndarray``
     (shape ``(N, EMBED_DIM)``). ``None`` loads the real potion-base-8M.
     """
-    existing = _existing_ids(data_dir)
+    prior = _read_rows(data_dir)
+    existing = {r["arxiv_id"] for r in prior}
     pending = _iter_pending(data_dir, existing, log)
     if limit is not None:
         pending = pending[:limit]
@@ -181,7 +163,7 @@ def run(
     texts = [p[1] for p in pending]
     vecs = model.encode(texts)
 
-    _write_parquet(data_dir, ids, vecs)
+    _write_embeddings(data_dir, prior, ids, vecs)
     total = len(existing) + len(ids)
     log.info(
         "embed done: embedded=%d skipped=%d total=%d",

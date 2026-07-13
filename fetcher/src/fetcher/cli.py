@@ -132,10 +132,10 @@ def embed(
     limit: Optional[int] = Limit,
     dry_run: bool = DryRun,
 ) -> None:
-    """Populate embeddings.parquet for every paper missing one.
+    """Populate embeddings.json for every paper missing one.
 
     Independent of ``render`` -- reads only ``metadata.json.abstract``.
-    Runs to convergence: papers already in the parquet are skipped.
+    Runs to convergence: papers already in the file are skipped.
     Also runs as a stage inside ``fetch``; this entry point is for a
     standalone backfill / manual retrigger.
     """

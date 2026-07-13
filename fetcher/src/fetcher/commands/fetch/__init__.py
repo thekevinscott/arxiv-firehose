@@ -3,7 +3,7 @@
 Two stages:
 - ``sync``  pulls recent paper metadata from the arxiv export API (one
   ``metadata.json`` per paper folder).
-- ``embed`` populates ``embeddings.parquet`` from each paper's abstract.
+- ``embed`` populates ``embeddings.json`` from each paper's abstract.
 
 The composite ``run`` here calls both in order and appends a record to
 ``runs.jsonl`` for durable history. ``api.fetch`` is the SDK entry-point.
@@ -47,11 +47,11 @@ def run(
     counts) for investigating what a given run did.
 
     embed runs last and is self-healing: it embeds every paper missing
-    from ``embeddings.parquet``, whether that paper was added today or
+    from ``embeddings.json``, whether that paper was added today or
     slipped through some earlier run. A single-run failure (model load,
-    duckdb, disk) is logged and the pipeline exits cleanly -- the next
-    day's cron will retry, so /search converges eventually rather than
-    failing loudly and blocking the whole ingest cycle.
+    disk) is logged and the pipeline exits cleanly -- the next day's cron
+    will retry, so /search converges eventually rather than failing
+    loudly and blocking the whole ingest cycle.
     """
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()

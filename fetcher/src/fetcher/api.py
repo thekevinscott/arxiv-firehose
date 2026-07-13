@@ -230,11 +230,11 @@ def embed(
     limit: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """Embed every paper missing from ``embeddings.parquet``.
+    """Embed every paper missing from ``embeddings.json``.
 
     A stage of ``fetch`` -- callable on its own for a manual backfill
     or a targeted rerun (e.g. after a metadata correction). Idempotent:
-    a paper already in the parquet is skipped, so a re-run is a no-op
+    a paper already in the file is skipped, so a re-run is a no-op
     once everything is embedded.
     """
     log = get_logger(data_dir, "embed", verbose)

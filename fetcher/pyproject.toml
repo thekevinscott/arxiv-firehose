@@ -21,14 +21,11 @@ dependencies = [
     "fastapi>=0.118",
     "uvicorn>=0.40",
     # Embedding + semantic search. model2vec provides fast CPU-only
-    # static embeddings (potion-base-8M, 256-dim); duckdb hosts the
-    # embeddings table + array_cosine_distance for /search.
+    # static embeddings (potion-base-8M, 256-dim); sqlite-vec supplies
+    # vec_distance_cosine() loaded into dirsql's SQLite connection, so
+    # /search rides the same dirsql surface as /sql (no separate engine).
     "model2vec>=0.3",
-    "duckdb>=1.1",
-    # duckdb's Python client needs pytz to hand TIMESTAMPTZ values back
-    # to Python; without it, /search SQL touching tz-aware timestamps
-    # (e.g. try_strptime with %z) crashes on fetch.
-    "pytz>=2024.1",
+    "sqlite-vec>=0.1.6",
 ]
 
 [project.optional-dependencies]

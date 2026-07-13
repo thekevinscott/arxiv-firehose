@@ -47,11 +47,18 @@ import json
 import os
 import shutil
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from dirsql import DirSQL, Table
 
 DEFAULT_ROOT = "/mnt/bertha/data/arxiv-firehose"
+
+# sqlite-vec supplies vec_distance_cosine() for /search. Loaded onto every
+# dirsql connection (harmless for the metadata-only /sql path). The pip
+# package's importable name is ``sqlite_vec``; its loadable's init symbol
+# is ``sqlite3_vec_init`` (doesn't match the filename-derived default).
+_EXTENSIONS = [{"path": "sqlite_vec", "entrypoint": "sqlite3_vec_init"}]
 
 
 def _arxiv_id_to_iso(arxiv_id: str) -> str | None:
@@ -66,6 +73,27 @@ def _arxiv_id_to_iso(arxiv_id: str) -> str | None:
     return datetime(year, mm, 1, tzinfo=timezone.utc).isoformat()
 
 
+def _normalize_announced_at(raw, arxiv_id: str) -> str | None:
+    """Parse metadata.json's ``announced_at`` into an ISO-8601 UTC string.
+
+    The corpus stores announced_at in RFC-2822 shape
+    (``"Tue, 14 Apr 2026 15:37:30 +0000"``, offsets vary by era). Parsing
+    it to ISO *here*, once at index time, is the fix for the old footgun:
+    ISO sorts lexically, so ``WHERE announced_at >= '2026-06-13'`` and
+    SQLite ``datetime()`` both work without a query-time strptime. Empty
+    or unparseable values fall back to the coarse month-from-id ISO."""
+    if raw:
+        try:
+            dt = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            dt = None
+        if dt is not None:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc).isoformat()
+    return _arxiv_id_to_iso(arxiv_id)
+
+
 def _read_json(path: str):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -76,9 +104,25 @@ def _extract_paper(path: str) -> list[dict]:
     arxiv_id = Path(path).parent.name
     return [{
         "arxiv_id": arxiv_id,
-        "announced_at": _arxiv_id_to_iso(arxiv_id),
+        "announced_at": _normalize_announced_at(
+            meta.get("announced_at"), arxiv_id
+        ),
         "primary_category": meta.get("primary_category"),
     }]
+
+
+def _extract_embeddings(path: str) -> list[dict]:
+    """One row per paper in ``embeddings.json`` (a single JSON array).
+
+    The embedding is stored as a JSON-array TEXT string -- sqlite-vec's
+    ``vec_distance_cosine`` reads JSON vectors directly, no binary
+    encoding needed. Rows missing an id or vector are dropped."""
+    rows = _read_json(path)
+    return [
+        {"paper_id": r["arxiv_id"], "embedding": json.dumps(r["embedding"])}
+        for r in rows
+        if r.get("arxiv_id") and r.get("embedding") is not None
+    ]
 
 
 # metadata.json keys never mirrored into the EAV ``metadata`` table:
@@ -202,11 +246,24 @@ _TABLE_SPECS = (
         "data/*/.no_markdown",
         _extract_marker,
     ),
+    # Vector search surface: one row per paper, embedding as JSON-array
+    # TEXT for sqlite-vec. Populated from the single embeddings.json at
+    # the data-dir root (see commands/embed.py).
+    (
+        """CREATE TABLE embeddings (
+            paper_id  TEXT PRIMARY KEY,
+            embedding TEXT NOT NULL
+        )""",
+        "data/embeddings.json",
+        _extract_embeddings,
+    ),
 )
 
 # Bump on any change to an ``extract`` callback's output shape that the
 # DDL alone doesn't capture (the fingerprint already covers ddl + glob).
-_SCHEMA_VERSION = 1
+# v2: papers.announced_at switched from month-from-id to parsed ISO, and
+# the embeddings table was added.
+_SCHEMA_VERSION = 2
 
 
 def _fingerprint() -> str:
@@ -261,6 +318,7 @@ def build_app(
             Table(ddl=ddl, glob=glob, extract=extract)
             for ddl, glob, extract in _TABLE_SPECS
         ],
+        extensions=_EXTENSIONS,
         persist=persist,
     )
 

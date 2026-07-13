@@ -1,8 +1,8 @@
 """Unit tests for the embed command.
 
 The real model2vec is replaced with a deterministic fake -- these tests
-assert the file-walking / diffing / parquet-merge logic, not the
-correctness of the embedding model.
+assert the file-walking / diffing / merge logic, not the correctness of
+the embedding model.
 
 Layout mirrors what sync-metadata writes: one folder per arxiv_id
 under the data dir, each carrying a metadata.json with an ``abstract``.
@@ -36,7 +36,7 @@ class FakeModel:
     def encode(self, texts: list[str]) -> np.ndarray:
         self.calls.append(list(texts))
         # Every vector begins with a distinctive component and pads with
-        # zeros -- enough to round-trip through DuckDB's FLOAT[256] type.
+        # zeros -- enough to assert exact content after the JSON round-trip.
         arr = np.zeros((len(texts), DIM), dtype=np.float32)
         for i, _ in enumerate(texts):
             arr[i, 0] = float(i + 1)
@@ -92,7 +92,7 @@ def describe_embed_run():
         assert second == {"embedded": 0, "skipped": 1, "total": 1}
         assert model.calls == []  # encode was not called at all
 
-    def it_embeds_only_papers_missing_from_the_parquet(data_dir: Path, log):
+    def it_embeds_only_papers_missing_from_the_file(data_dir: Path, log):
         _write_paper(data_dir, "2401.00001", "abstract one")
         model = FakeModel()
         embed.run(data_dir, log, model=model)
@@ -156,33 +156,36 @@ def describe_embed_run():
         assert counts == {"embedded": 0, "skipped": 1, "total": 1}
 
 
-def describe_embed_parquet():
-    def it_produces_a_parquet_that_supports_array_cosine_distance(
-        data_dir: Path, log
-    ):
-        # After a real write, DuckDB must be able to read the embedding
-        # column back and use it in array_cosine_distance -- the fixed
-        # size (FLOAT[256]) has to survive the parquet round-trip.
-        import duckdb
-
+def describe_embeddings_file():
+    def it_writes_a_json_array_of_id_and_vector_rows(data_dir: Path, log):
         _write_paper(data_dir, "2401.00001", "a")
         _write_paper(data_dir, "2401.00002", "b")
         embed.run(data_dir, log, model=FakeModel())
 
-        con = duckdb.connect()
-        rows = con.execute(
-            f"""
-            SELECT arxiv_id,
-                   array_cosine_distance(
-                       embedding::FLOAT[{DIM}],
-                       (SELECT embedding::FLOAT[{DIM}] FROM read_parquet(?)
-                        WHERE arxiv_id = '2401.00001')
-                   ) AS d
-            FROM read_parquet(?) ORDER BY d
-            """,
-            [str(embed.embeddings_path(data_dir))] * 2,
-        ).fetchall()
-        con.close()
+        rows = json.loads(embed.embeddings_path(data_dir).read_text())
+        by_id = {r["arxiv_id"]: r["embedding"] for r in rows}
+        assert set(by_id) == {"2401.00001", "2401.00002"}
+        # Full 256-dim vectors, stored as plain JSON float arrays.
+        assert len(by_id["2401.00001"]) == DIM
+        # FakeModel encodes the first (id-sorted) text with a leading 1.0.
+        assert by_id["2401.00001"][0] == 1.0
 
-        # 00001 vs itself = distance 0.
-        assert rows[0] == ("2401.00001", pytest.approx(0.0, abs=1e-6))
+    def it_preserves_prior_rows_when_merging_new_ones(data_dir: Path, log):
+        _write_paper(data_dir, "2401.00001", "a")
+        embed.run(data_dir, log, model=FakeModel())
+        _write_paper(data_dir, "2401.00002", "b")
+        embed.run(data_dir, log, model=FakeModel())
+
+        rows = json.loads(embed.embeddings_path(data_dir).read_text())
+        assert {r["arxiv_id"] for r in rows} == {"2401.00001", "2401.00002"}
+
+    def it_self_heals_a_corrupt_embeddings_file(data_dir: Path, log):
+        _write_paper(data_dir, "2401.00001", "a")
+        embed.embeddings_path(data_dir).write_text("{not json")
+
+        counts = embed.run(data_dir, log, model=FakeModel())
+
+        # Corrupt file treated as empty -> re-embed everything.
+        assert counts == {"embedded": 1, "skipped": 0, "total": 1}
+        rows = json.loads(embed.embeddings_path(data_dir).read_text())
+        assert [r["arxiv_id"] for r in rows] == ["2401.00001"]
