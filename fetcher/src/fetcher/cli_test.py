@@ -48,3 +48,18 @@ def describe_cli_pull():
         assert result.exit_code == 0, result.output
         assert "pulled=0" in result.output
         assert not (tmp_path / "2401.00001").exists()
+
+
+def describe_cli_sql():
+    def it_runs_a_readonly_query_and_prints_json(tmp_path: Path):
+        # data_dir must be <root>/data so data_dir.parent (the dirsql
+        # scan root) is the isolated tmp_path, not the shared tmp base.
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        result = runner.invoke(
+            app,
+            ["sql", "SELECT COUNT(*) AS n FROM papers",
+             "--data-dir", str(data_dir)],
+        )
+        assert result.exit_code == 0, result.output
+        assert '"n": 0' in result.output

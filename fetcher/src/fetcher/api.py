@@ -34,6 +34,7 @@ from .shared.config import (
     DEFAULT_DATA_DIR,
     load_config,
 )
+from .shared.dirsql_schema import query as _dirsql_query
 from .shared.convert import REAL_CONVERTER, Converter
 from .shared.logsetup import get_logger
 
@@ -51,6 +52,7 @@ __all__ = [
     "pull",
     "render_markdown",
     "serve",
+    "sql",
     "status",
     "sync_metadata",
     "train_categories",
@@ -253,6 +255,25 @@ def status(
     a "fully classified" paper should carry.
     """
     return status_mod.render(data_dir, config_file)
+
+
+def sql(
+    statement: str,
+    data_dir: Path = DEFAULT_DATA_DIR,
+) -> list[dict]:
+    """Run one read-only SQL statement against the dirsql schema.
+
+    Tables live in ``shared.dirsql_schema`` (``papers``, ``metadata``
+    EAV, ``papers_categories``, ``categories``, ``markdown``,
+    ``no_markdown``). dirsql scans ``data_dir.parent`` -- the same root
+    the schema globs are written against -- and its authorizer rejects
+    any non-read statement, so this is read-only by construction.
+
+    Returns the result rows as dicts. The programmatic twin of the
+    ``POST /sql`` endpoint and the metadata counterpart to /search
+    (which owns the DuckDB-over-embeddings surface).
+    """
+    return _dirsql_query(statement, data_dir.parent)
 
 
 def serve(

@@ -14,6 +14,7 @@ call it from a REPL.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -156,6 +157,25 @@ def status(
 ) -> None:
     """Print counts: papers known, markdown on disk, classified."""
     typer.echo(api.status(data_dir, config))
+
+
+@app.command("sql")
+def sql(
+    statement: str = typer.Argument(
+        ..., help="Read-only SQL against the dirsql schema."
+    ),
+    data_dir: Path = DataDir,
+) -> None:
+    """Run one read-only SQL query against the dirsql schema; print JSON.
+
+    Tables: papers, metadata (EAV: paper_id/key/value), papers_categories,
+    categories, markdown, no_markdown. Writes are rejected by dirsql's
+    authorizer. Example:
+
+        fetcher sql "SELECT primary_category, COUNT(*) n FROM papers GROUP BY 1"
+    """
+    rows = api.sql(statement, data_dir)
+    typer.echo(json.dumps(rows, indent=2, default=str))
 
 
 @app.command("serve")
