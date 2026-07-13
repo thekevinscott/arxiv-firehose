@@ -264,15 +264,18 @@ def search_data_dir(tmp_path: Path) -> Path:
     """
     d = tmp_path / "data"
     d.mkdir()
+    # announced_at is stored in the corpus's RFC-2822 shape; distinct dates
+    # let the announced_ts date-filter test assert a real slice.
     papers = [
         ("2401.00001", "Diffusion", "cs.LG",
-         "A paper about diffusion models."),
+         "A paper about diffusion models.", "Mon, 01 Jan 2024 00:00:00 +0000"),
         ("2401.00002", "Compiler", "cs.PL",
-         "A paper about compiler optimizations."),
+         "A paper about compiler optimizations.",
+         "Wed, 15 May 2024 00:00:00 +0000"),
         ("2401.00003", "Protein", "q-bio.BM",
-         "A paper about protein folding."),
+         "A paper about protein folding.", "Sun, 01 Sep 2024 00:00:00 +0000"),
     ]
-    for aid, title, primary, abstract in papers:
+    for aid, title, primary, abstract, announced in papers:
         pd = d / aid
         pd.mkdir()
         (pd / "metadata.json").write_text(json.dumps({
@@ -282,8 +285,8 @@ def search_data_dir(tmp_path: Path) -> Path:
             "primary_category": primary,
             "categories": [primary],
             "authors": ["A"],
-            "announced_at": "2024-01-01",
-            "updated_at": "2024-01-01",
+            "announced_at": announced,
+            "updated_at": announced,
             "html_url": f"https://arxiv.org/html/{aid}v1",
         }))
     embed_mod.run(
@@ -408,6 +411,25 @@ def describe_post_search():
         assert body["count"] == 1
         assert body["rows"][0]["arxiv_id"] == "2401.00003"
         assert body["rows"][0]["primary_category"] == "q-bio.BM"
+
+    def it_filters_by_the_derived_announced_ts_timestamp(
+        search_client: TestClient
+    ):
+        # The view exposes a parsed announced_ts so callers filter by date
+        # without re-deriving the RFC-2822 strptime (the string column sorts
+        # lexically and silently leaks out-of-window rows). Only the Sep
+        # paper is on/after the June cutoff.
+        r = search_client.post("/search", json={
+            "q": "anything",
+            "sql": (
+                "SELECT arxiv_id, announced_ts FROM papers "
+                "WHERE announced_ts >= TIMESTAMPTZ '2024-06-01' "
+                "ORDER BY announced_ts"
+            ),
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert [row["arxiv_id"] for row in body["rows"]] == ["2401.00003"]
 
     def it_supports_aggregate_sql(search_client: TestClient):
         r = search_client.post("/search", json={

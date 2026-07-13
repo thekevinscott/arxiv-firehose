@@ -73,6 +73,13 @@ def _build_papers_view_sql(parquet_path: str, meta_glob: str) -> str:
             m.primary_category,
             m.categories,
             m.announced_at,
+            -- Derived, properly typed timestamp so callers can filter/sort
+            -- by date without re-deriving the RFC-2822 strptime themselves.
+            -- TRY_ (not strptime) so empty/legacy strings yield NULL, not an
+            -- error that aborts the whole query.
+            TRY_STRPTIME(
+                m.announced_at, '%a, %d %b %Y %H:%M:%S %z'
+            ) AS announced_ts,
             m.updated_at,
             m.html_url,
             array_cosine_distance(
