@@ -12,7 +12,6 @@ Layout: one folder per paper, named by arxiv id, directly under the data dir.
       logs/
       {arxiv_id}/
         metadata.json
-        paper.md           the markdown rendering (or .no_markdown if none)
 """
 
 from __future__ import annotations
@@ -82,11 +81,6 @@ def version_from_entry_id(entry_id: str) -> int:
 def paper_dir(data_dir: Path, arxiv_id: str) -> Path:
     """The folder for a single paper, named by its (slugified) arxiv id."""
     return data_dir / parse_id(arxiv_id).slug
-
-
-def markdown_path(data_dir: Path, arxiv_id: str) -> Path:
-    """Path to a paper's markdown rendering inside its folder."""
-    return paper_dir(data_dir, arxiv_id) / "paper.md"
 
 
 def metadata_path(data_dir: Path, arxiv_id: str) -> Path:

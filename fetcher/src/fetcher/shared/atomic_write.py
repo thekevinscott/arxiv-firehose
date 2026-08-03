@@ -1,7 +1,7 @@
 """Atomic file writes: ``.part`` + ``rename``.
 
-Every persistent artifact (markdown, classification JSON, categories
-index) is written via this helper. The .part suffix + rename guarantees
+Every persistent artifact (metadata.json, embeddings.json) is written
+via this helper. The .part suffix + rename guarantees
 a partial write never appears at the final path: dirsql watchers and
 re-runs see either the prior version or the new one, never a truncated
 file.

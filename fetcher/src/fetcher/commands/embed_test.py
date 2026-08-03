@@ -1,8 +1,8 @@
 """Unit tests for the embed command.
 
-The real model2vec is replaced with a deterministic fake -- these tests
-assert the file-walking / diffing / merge logic, not the correctness of
-the embedding model.
+The real HTTP embedder is replaced with a deterministic fake -- these
+tests assert the file-walking / diffing / merge logic, not the
+correctness of the embedding model.
 
 Layout mirrors what sync-metadata writes: one folder per arxiv_id
 under the data dir, each carrying a metadata.json with an ``abstract``.
@@ -14,7 +14,6 @@ import json
 import logging
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from fetcher.commands import embed
@@ -23,7 +22,7 @@ DIM = embed.EMBED_DIM
 
 
 class FakeModel:
-    """Deterministic stand-in for model2vec's ``StaticModel``.
+    """Deterministic stand-in for the HTTP embedder.
 
     Encodes each text as a vector whose first component is a rolling
     counter -- lets a test assert exact vector content and prove the
@@ -33,14 +32,16 @@ class FakeModel:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
 
-    def encode(self, texts: list[str]) -> np.ndarray:
+    def encode(self, texts: list[str]) -> list[list[float]]:
         self.calls.append(list(texts))
         # Every vector begins with a distinctive component and pads with
         # zeros -- enough to assert exact content after the JSON round-trip.
-        arr = np.zeros((len(texts), DIM), dtype=np.float32)
+        vectors = []
         for i, _ in enumerate(texts):
-            arr[i, 0] = float(i + 1)
-        return arr
+            vec = [0.0] * DIM
+            vec[0] = float(i + 1)
+            vectors.append(vec)
+        return vectors
 
 
 def _write_paper(data_dir: Path, arxiv_id: str, abstract: str, **extra) -> None:
@@ -165,7 +166,7 @@ def describe_embeddings_file():
         rows = json.loads(embed.embeddings_path(data_dir).read_text())
         by_id = {r["arxiv_id"]: r["embedding"] for r in rows}
         assert set(by_id) == {"2401.00001", "2401.00002"}
-        # Full 256-dim vectors, stored as plain JSON float arrays.
+        # Full EMBED_DIM vectors, stored as plain JSON float arrays.
         assert len(by_id["2401.00001"]) == DIM
         # FakeModel encodes the first (id-sorted) text with a leading 1.0.
         assert by_id["2401.00001"][0] == 1.0

@@ -8,14 +8,8 @@ Two stages:
 The composite ``run`` here calls both in order and appends a record to
 ``runs.jsonl`` for durable history. ``api.fetch`` is the SDK entry-point.
 
-Rendering markdown (``render``) is deliberately NOT a stage: it is the
-heavy path (up to three paced downloads per paper) and search/classify
-only need abstracts. It runs only when explicitly invoked
-(``fetcher render`` / ``POST /render`` / ``api.render_markdown``).
-
-Classify is a separate command (its own CLI + cron entry); fetch does not
-trigger it. Keeping ingest and classify decoupled lets the fetch cron stay
-quick and predictable while classify reruns cheaply when prompts change.
+The pipeline pulls only metadata (which carries the abstract); it never
+downloads paper bodies. Abstracts are all that ``embed`` and /search need.
 """
 
 from __future__ import annotations
@@ -28,9 +22,9 @@ from pathlib import Path
 
 from ...shared.config import Config
 from .. import embed
-from . import pull, render, sync
+from . import pull, sync
 
-__all__ = ["pull", "render", "run", "sync"]
+__all__ = ["pull", "run", "sync"]
 
 
 def run(

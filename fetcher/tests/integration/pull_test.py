@@ -5,9 +5,8 @@ citations of a paper worth tracing), it fetches each paper's metadata via
 an ``id_list=`` export-API query. Unlike sync, it applies no category or
 version filter -- whatever the user asked for by id is mirrored.
 
-Pull is metadata-only, like the daily ingest: search/classify/embed need
-abstracts, not paper bodies. Markdown for pulled papers arrives when
-render is explicitly invoked (``fetcher render`` / ``POST /render``).
+Pull is metadata-only, like the daily ingest: search and embed need
+abstracts, not paper bodies. Paper bodies are never downloaded.
 
 Fixture papers:
   2401.00001 -- tracked, v1
@@ -29,11 +28,10 @@ def describe_pull():
         assert meta["title"] == "A Sample Paper on Gradient Methods"
         assert meta["authors"] == ["Ada Lovelace", "Alan Turing"]
 
-    def it_does_not_render_markdown(data_dir, arxiv):
+    def it_downloads_only_metadata(data_dir, arxiv):
         pull(["2401.00001"], data_dir)
 
         assert not (data_dir / "2401.00001" / "paper.md").exists()
-        assert not (data_dir / "2401.00001" / ".no_markdown").exists()
         # Exactly one network call: the id_list metadata query. No paper
         # bodies (html / e-print / pdf) are touched.
         assert len(arxiv.calls) == 1
@@ -71,7 +69,7 @@ def describe_pull():
     ):
         # A pulled paper is a first-class citizen of the data dir: its
         # folder carries metadata.json, so iter_paper_dirs (and therefore
-        # render, status, embed) all see it.
+        # status, embed) all see it.
         from fetcher.shared.paths import iter_paper_dirs
 
         pull(["2401.00001"], data_dir)

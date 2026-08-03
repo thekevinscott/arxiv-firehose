@@ -1,15 +1,17 @@
 # fetcher
 
-A CLI tool that maintains a local mirror of arxiv papers in chosen categories.
-For each paper it stores the metadata, the PDF, and the LaTeX source as plain
-files on disk — one folder per paper, named by arxiv id. No database.
+A CLI tool that maintains a local mirror of arxiv paper *metadata* in chosen
+categories. For each paper it stores the metadata (title, authors, abstract,
+categories, dates) as a JSON file on disk — one folder per paper, named by
+arxiv id. It also derives an embedding of each abstract for semantic search.
+No paper bodies (PDF/HTML/LaTeX) are downloaded. No database.
 
-This is plumbing. It knows nothing about LLMs, filtering, or summarization — a
-downstream tool reads the folders for that.
+This is plumbing. It knows nothing about summarization or filtering — a
+downstream tool reads the folders (or the HTTP API) for that.
 
 ## Install
 
-Requires Python 3.12+. Built with [`uv`](https://docs.astral.sh/uv/).
+Requires Python 3.13+. Built with [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
@@ -23,11 +25,12 @@ fetcher keeps two separate trees:
 | Tree       | Default                   | Contents |
 |------------|---------------------------|----------|
 | Data dir   | `./arxiv-firehose/data`   | Organized paper folders — the deliverable. |
-| Cache dir  | `~/.cache/arxiv-firehose` | [cachetta](https://github.com/thekevinscott/cachetta) download cache. |
+| Cache dir  | `~/.cache/arxiv-firehose` | [cachetta](https://github.com/thekevinscott/cachetta) request cache. |
 
-Override with `--data-dir` and `--cache-dir`. They are deliberately separate:
-the cache is disposable (delete it anytime, the next fetch just re-downloads),
-the data dir is what you keep.
+Override the data dir with `--data-dir`; override the cache location with the
+`ARXIV_FIREHOSE_CACHE_DIR` env var. They are deliberately separate: the cache
+is disposable (delete it anytime, the next fetch just re-requests), the data
+dir is what you keep.
 
 ### Data layout
 
@@ -36,108 +39,62 @@ the data dir is what you keep.
   config.toml
   last_sync.json
   logs/
+  embeddings.json              one abstract embedding per paper (for /search)
   {arxiv_id}/                  e.g. 2401.12345/  (legacy ids: cs_0501001/)
     metadata.json
-    {arxiv_id}.pdf
-    source/                    extracted LaTeX .tex/.bib/figures
-    .no_latex                  marker: arxiv has no LaTeX source for this paper
 ```
 
 ### Cache layout
 
 ```
 {cache_dir}/
-  rss/{category}.pkl           cached RSS feed   — expires after 1 day
-  pdf/{arxiv_id}vN.pkl         cached PDF bytes  — never expires
-  eprint/{arxiv_id}.pkl        cached e-print archive bytes — never expires
-  html/{arxiv_id}vN.pkl        cached native HTML bytes     — never expires
-  llm/{sha}.pkl                cached LLM response, keyed by (model, prompt,
-                               schema) — never expires
+  slices/{hash}                cached export-API day slice — settled days never expire
 ```
 
 ## Caching strategy
 
-Everything that touches arxiv goes through the [cachetta](https://github.com/thekevinscott/cachetta)
-cache, so arxiv is hit as rarely as possible:
-
-| Request          | Cache duration | Why |
-|------------------|----------------|-----|
-| RSS feed         | 1 day          | arxiv regenerates each feed once a day, after the daily announcement. |
-| PDF / LaTeX      | never expires  | A paper's content is immutable for a fixed version. |
-| LLM response     | never expires  | A `(model, prompt, schema)` triple is deterministic; the key encodes every input that could change the answer. |
-
-Consequences, all verifiable by re-running:
-
-- **First run** downloads a full week of papers — rate-limited to one request
-  per 3 s, so a few hundred papers takes on the order of an hour or two.
-- **Re-running the same day** is near-instant: the feed is still fresh in the
-  cache and every paper is already on disk — zero arxiv requests.
-- **Running the next day** re-fetches the feeds (the 1-day cache has expired)
-  and downloads only the papers that are genuinely new — slightly longer than
-  an instant no-op, far shorter than the first run.
-
-Prune the data dir however you like; the cache lets a re-fetch skip the network
-entirely. Prune the cache too if it grows large — re-fetching just costs arxiv
-bandwidth, nothing else.
+Everything that touches arxiv goes through the
+[cachetta](https://github.com/thekevinscott/cachetta) cache, so arxiv is hit as
+rarely as possible. Export-API day slices for settled days are immutable, so
+those cache entries effectively never expire; a re-run of the same lookback
+window only makes real requests for days that are new or previously missed.
 
 ## Commands
 
 ```sh
-fetcher fetch              # daily ingest: sync RSS metadata, render markdown
-fetcher classify           # daily labeling: abstract -> topic flags (LLM)
+fetcher fetch              # daily ingest: sync metadata, then embed abstracts
+fetcher pull <ids...>      # mirror specific papers' metadata by id
+fetcher embed              # standalone embedding backfill (also a fetch stage)
 fetcher status             # print counts
-fetcher serve              # HTTP API for the three above (tailnet-only)
-fetcher train-categories   # developer: compile labels/ -> prompts/
+fetcher sql "<query>"      # read-only SQL over the dirsql schema
+fetcher serve              # HTTP API for the above (tailnet-only)
 ```
 
-Flags: `--data-dir`, `--cache-dir`, `--config`, `--verbose/-v`, `--limit N`,
-`--dry-run`.
+Flags: `--data-dir`, `--config`, `--verbose/-v`, `--limit N`, `--dry-run`.
 
-The fetch stages are also callable from the SDK (`api.sync_metadata`,
-`api.render_markdown`) when granular control is wanted; they are not
-exposed on the CLI.
-
-`train-categories` is a developer command, not a cron one: it walks
-`labels/`, treats every subdir with a `_schema.json` as a category, and
-compiles each into `prompts/<category>/`. The output field name is the
-category name with hyphens swapped for underscores
-(`is-about-control` -> `is_about_control`) -- same key the runtime
-classify writes per paper. Each compile is content-cached at
-`~/.cache/arxiv-firehose/classify/{hash}/`; unchanged labels copy from
-cache. With `--optimizer gepa` it drives a DSPy round-trip against
-`--model`/`--base-url`.
-
-```sh
-fetcher train-categories                                  # labels/ -> prompts/
-fetcher train-categories --optimizer gepa --model phi4:14b
-```
+`sync_metadata` is SDK-only (`api.sync_metadata`); for granular debugging call
+it from a REPL.
 
 ## How fetching works
 
 `fetch` runs two stages in order:
 
-1. **sync** writes a `metadata.json` for every paper in the RSS feed of each
-   tracked category (RSS carries ~1 week of submissions).
-2. **render** walks every paper folder and produces a markdown rendering
-   for *each* one, every run — there is no "already on disk, skip" shortcut.
-   It re-fetches and rewrites the data-dir files unconditionally. Three
-   conversion paths are tried in order: arxiv native HTML → LaTeX e-print
-   → PDF.
-3. Every download goes through the cachetta-backed downloader, which serves
-   the bytes from the on-disk cache or the network **transparently**. arxiv
-   content is immutable for a fixed paper version, so cache entries never
-   expire. From `fetch`'s perspective every paper is a fresh fetch; the
-   cache only decides whether a request touches the network. A file deleted
-   or corrupted in the data dir is rewritten from the cache with **no
-   network call and no rate-limit delay**.
+1. **sync** queries the arxiv export API over the lookback window
+   (`[ingest] backfill_days`) and writes a `metadata.json` for every new paper
+   in each tracked category. Settled day slices come from the ~forever cache,
+   so only new or missed days cost a real request.
+2. **embed** reads each paper's `metadata.json.abstract`, computes a
+   model2vec embedding (`potion-base-8M`, 256-dim, CPU-only), and writes it to
+   `embeddings.json`. It runs to convergence: papers already embedded are
+   skipped, so a missed run self-heals on the next fetch.
 
 Both stages are idempotent and resumable: a re-run rewrites the same bytes,
-and after a crash the next run simply fetches everything again — cheaply,
-since the cache absorbs it.
+and a missed cron day recovers on the next run as long as it falls within the
+lookback window.
 
 ```sh
 fetcher fetch
-fetcher fetch --data-dir /tmp/mirror --cache-dir /tmp/cache --limit 5
+fetcher fetch --data-dir /tmp/mirror --limit 5
 ```
 
 ## Configuration
@@ -151,74 +108,65 @@ include = ["cs.LG", "cs.CL", "cs.AI"]
 [fetch]
 source = "arxiv"        # only "arxiv" is implemented
 concurrency = 1         # arxiv source must stay at 1
-latex = true            # also pull the LaTeX source tarball
 
 [ingest]
-backfill_days = 0       # skip papers older than N days; 0 = all of RSS
+backfill_days = 90      # re-read this many days of export-API day slices each run
 ```
+
+## Querying
+
+The data dir is queryable in place through [dirsql](https://github.com/thekevinscott/dirsql),
+which materializes the JSON files into an in-process SQLite schema:
+
+| Table        | Rows |
+|--------------|------|
+| `papers`     | one per paper: `arxiv_id`, `announced_at` (normalized UTC ISO), `primary_category`. |
+| `metadata`   | EAV: `(id, paper_id, key, value)`, one per metadata field except the abstract. |
+| `embeddings` | one per paper: `paper_id`, `embedding` (JSON-array TEXT for sqlite-vec). |
+
+```sh
+fetcher sql "SELECT primary_category, COUNT(*) n FROM papers GROUP BY 1 ORDER BY 2 DESC"
+```
+
+Writes are rejected by dirsql's authorizer, so `sql` is effectively read-only.
 
 ## HTTP API
 
-`fetcher serve` runs a small FastAPI app exposing the cron commands
-over HTTP, so a remote client (or another agent) can trigger and
-inspect runs without SSHing into the box. Bind to a tailscale IP and
-let the tailnet ACL be the perimeter — there is no auth.
+`fetcher serve` runs a small FastAPI app exposing the commands over HTTP, so a
+remote client (or another agent) can trigger and inspect runs without SSHing
+into the box. Bind to a tailscale IP and let the tailnet ACL be the perimeter —
+there is no auth.
 
 ```sh
 fetcher serve --host 100.x.y.z --port 8087    # tower (tailscale IP)
 fetcher serve                                  # 127.0.0.1:8087 (local dev)
 ```
 
-| Endpoint                        | Behavior |
-|---------------------------------|----------|
-| `GET  /status`                  | Same report as `fetcher status`. |
-| `POST /fetch`                   | Spawns `fetcher fetch`, returns a `Job` (HTTP 202). 409 if a fetch is already running. |
-| `POST /classify`                | Spawns `fetcher classify`, returns a `Job` (HTTP 202). 409 if a classify is already running. |
-| `GET  /jobs`                    | Jobs spawned by this API process (ring buffer). |
-| `GET  /jobs/{id}`               | One job: pid, started_at, exit_code, log_path. |
-| `GET  /logs/{fetch,classify}`   | Tail the shared cron log (`?lines=50` default). |
-| `GET  /docs`                    | OpenAPI / Swagger UI. |
+| Endpoint                     | Behavior |
+|------------------------------|----------|
+| `GET  /status`               | Same report as `fetcher status`. |
+| `POST /fetch`                | Spawns `fetcher fetch`, returns a `Job` (HTTP 202). 409 if a fetch is already running. |
+| `POST /embed`                | Spawns `fetcher embed`, returns a `Job` (HTTP 202). |
+| `POST /pull`                 | Spawns `fetcher pull` for the posted `ids`. |
+| `POST /sql`                  | Read-only SQL over the dirsql schema (`{"sql": "..."}`). |
+| `POST /search`              | Embedding search + arbitrary SQL over the `search` relation. |
+| `GET  /jobs`                 | Jobs spawned by this API process (ring buffer). |
+| `GET  /jobs/{id}`            | One job: pid, started_at, exit_code, log_path. |
+| `GET  /logs/{fetch,embed,pull}` | Tail the shared cron log (`?lines=50` default). |
+| `GET  /docs`                 | OpenAPI / Swagger UI. |
 
-Long jobs are fire-and-forget. `POST /classify` returns immediately
-with a job id; the child runs detached (`start_new_session`) and
-survives an API restart. Tail `/logs/classify` for progress.
+Long jobs are fire-and-forget: a `POST` returns immediately with a job id; the
+child runs detached (`start_new_session`) and survives an API restart. A
+duplicate POST while a same-kind run is in flight returns `409 Conflict`
+carrying the existing Job.
 
-The API is the **single triggering chokepoint**: cron POSTs to it,
-ad-hoc curls POST to it, future agents POST to it. A duplicate POST
-while a same-kind run is in flight returns `409 Conflict` carrying
-the existing Job, so two cron lines firing seconds apart (or cron +
-manual) cannot race on the same paper-x-category pairs. Different
-kinds (one fetch + one classify) can run concurrently.
-
-Deployment is a systemd unit; see `fetcher/deploy/fetcher-api.service`.
-Cron stays as the *scheduler* (`* * * curl -sX POST .../classify`); the
-API is what actually spawns the work. Cron + API are deployed together
-on the same host so the API outage and the cron outage are the same
-event.
+Deployment is a systemd unit; see `fetcher/deploy/`.
 
 ## Daily cron
 
 arxiv announces new papers roughly once per weekday (~20:00 US Eastern). One run
-per day keeps the mirror complete; the RSS window is ~1 week so a missed day is
-recovered automatically.
-
-```cron
-0 3 * * *  cd ~/work && fetcher fetch >> ~/.cache/arxiv-firehose/cron.log 2>&1
-```
-
-Hourly polling is safe — it is idempotent and a no-op when nothing is new — but
-arxiv publishes once a day, so most hourly runs find nothing. Use hourly only
-if you want to pick up the daily drop within the hour.
-
-## Disk planning
-
-At ~500 papers/day across the ML cluster, ~3 MB average PDF, expect roughly
-**1.5 GB/day, ~550 GB/year** in the data dir. LaTeX source adds ~10-20%.
-
-Note: the cachetta cache holds a **second copy** of every downloaded PDF and
-e-print archive, so the cache dir grows at a similar rate. Put it on a volume
-you are willing to wipe, or delete it periodically — it only exists to spare
-arxiv repeat traffic, and losing it costs nothing but bandwidth.
+per day keeps the mirror complete; the `backfill_days` window means a missed day
+is recovered automatically.
 
 ## Prototype scope
 

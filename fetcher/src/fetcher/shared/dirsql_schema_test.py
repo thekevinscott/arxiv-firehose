@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 from .dirsql_schema import (
-    MISSING_PAIRS_SQL,
     _fingerprint,
     _reconcile_persist_cache,
     query,
@@ -22,29 +21,12 @@ def _write_paper(
     arxiv_id: str,
     *,
     meta: dict | None = None,
-    markdown: str | None = None,
-    no_markdown: bool = False,
-    classifications: dict[str, bool] | None = None,
 ) -> None:
     pd = root / "data" / arxiv_id
     pd.mkdir(parents=True)
     base = {"arxiv_id": arxiv_id, "primary_category": "cs.LG"}
     base.update(meta or {})
     (pd / "metadata.json").write_text(json.dumps(base))
-    if markdown is not None:
-        (pd / "paper.md").write_text(markdown)
-    if no_markdown:
-        (pd / ".no_markdown").write_text("")
-    for cat, output in (classifications or {}).items():
-        cdir = pd / "classifications"
-        cdir.mkdir(exist_ok=True)
-        (cdir / f"{cat}.json").write_text(json.dumps({"output": output}))
-
-
-def _write_category(root: Path, cat_id: str) -> None:
-    cats = root / "categories"
-    cats.mkdir(parents=True, exist_ok=True)
-    (cats / f"{cat_id}.json").write_text(json.dumps({"prompts_dir": "/x"}))
 
 
 def describe_papers_table():
@@ -88,33 +70,16 @@ def describe_metadata_eav():
         assert all(isinstance(i, int) for i in ids)
 
 
-def describe_presence_tables():
-    def it_records_markdown_size_and_no_markdown_marker(tmp_path):
-        _write_paper(tmp_path, "2401.00001", markdown="# body\n")
-        _write_paper(tmp_path, "2401.00002", no_markdown=True)
+def describe_embeddings_table():
+    def it_has_one_row_per_paper_with_json_vector(tmp_path):
+        _write_paper(tmp_path, "2401.00001")
+        (tmp_path / "data" / "embeddings.json").write_text(
+            json.dumps([{"arxiv_id": "2401.00001", "embedding": [0.1, 0.2, 0.3]}])
+        )
 
-        md = query("SELECT * FROM markdown", tmp_path)
-        nomd = query("SELECT paper_id FROM no_markdown", tmp_path)
+        rows = query("SELECT * FROM embeddings", tmp_path)
 
-        assert md == [{"paper_id": "2401.00001", "size_bytes": 7}]
-        assert nomd == [{"paper_id": "2401.00002"}]
-
-
-def describe_missing_pairs_sql():
-    def it_returns_only_uncovered_paper_category_cells(tmp_path):
-        _write_category(tmp_path, "is_ml")
-        _write_category(tmp_path, "is_md")
-        _write_paper(tmp_path, "2401.00001", classifications={"is_ml": True})
-        _write_paper(tmp_path, "2401.00002")
-
-        pairs = query(MISSING_PAIRS_SQL, tmp_path)
-        got = {(r["paper_id"], r["category_id"]) for r in pairs}
-
-        assert got == {
-            ("2401.00001", "is_md"),
-            ("2401.00002", "is_ml"),
-            ("2401.00002", "is_md"),
-        }
+        assert rows == [{"paper_id": "2401.00001", "embedding": "[0.1, 0.2, 0.3]"}]
 
 
 def describe_persist_cache():

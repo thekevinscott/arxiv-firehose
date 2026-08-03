@@ -1,7 +1,7 @@
 [project]
 name = "fetcher"
 version = "0.1.0"
-description = "Maintain a local mirror of arxiv papers as markdown (plus metadata), with optional auto-classification."
+description = "Maintain a local mirror of arxiv paper metadata (abstracts), with embedding-based semantic search."
 readme = "README.md"
 requires-python = ">=3.13"
 authors = [
@@ -13,18 +13,14 @@ dependencies = [
     "typer>=0.12",
     "pydantic>=2.6",
     "cachetta>=0.6.6,<0.7",
-    "arxiv2markdown~=0.1.0",
-    "pypandoc-binary>=1.13",
-    "pymupdf4llm>=1.27.2.3",
-    "coaxer>=0.3.13,<0.4",
     "dirsql>=0.3.12",
     "fastapi>=0.118",
     "uvicorn>=0.40",
-    # Embedding + semantic search. model2vec provides fast CPU-only
-    # static embeddings (potion-base-8M, 256-dim); sqlite-vec supplies
-    # vec_distance_cosine() loaded into dirsql's SQLite connection, so
-    # /search rides the same dirsql surface as /sql (no separate engine).
-    "model2vec>=0.3",
+    # Semantic search. Abstracts are embedded via tower's llama-server
+    # (Qwen3-Embedding-0.6B, 1024-dim) over its OpenAI-compatible
+    # /v1/embeddings endpoint using httpx (already a dep). sqlite-vec
+    # supplies vec_distance_cosine() loaded into dirsql's SQLite
+    # connection, so /search rides the same dirsql surface as /sql.
     "sqlite-vec>=0.1.6",
 ]
 

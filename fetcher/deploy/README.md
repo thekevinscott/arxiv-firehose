@@ -2,6 +2,69 @@
 
 Artifacts for running fetcher on tower (or any Linux box with systemd).
 
+## Deploying new code
+
+Code lives at `~/apps/arxiv-firehose` (a git checkout) on the deploy user's
+account; the systemd units below run out of `~/apps/arxiv-firehose/fetcher`.
+There is no build step -- `uv run` resolves the venv on each invocation -- so
+a deploy is just: update the checkout, then bounce the resident API.
+
+```sh
+cd ~/apps/arxiv-firehose
+git pull
+
+# The API (fetcher serve) is the only long-running process; restart it to
+# pick up new code.
+systemctl --user restart fetcher-api.service
+systemctl --user status fetcher-api.service
+```
+
+The `fetcher-fetch.timer` needs no restart -- it runs a fresh
+`uv run fetcher fetch` each firing and picks up new code on its own. Re-copy
+the unit files only if the `.service`/`.timer` themselves changed (then
+`daemon-reload`).
+
+Sanity-check that the running API actually matches the checkout. The
+`/logs/{kind}` enum is a cheap version tell: current code exposes only
+`fetch`, `embed`, `pull`, so a stale build is obvious.
+
+```sh
+# Current build -> 422 listing exactly {fetch, embed, pull}.
+# A stale build answers 200 (or lists classify/render) -> it predates the
+# metadata-only refactor and is still running retired stages. Redeploy.
+curl -s http://localhost:8087/logs/classify
+```
+
+## Retiring a stage's schedule
+
+When a pipeline stage is removed from the code (e.g. `classify` was dropped in
+the metadata-only refactor), its scheduled trigger does **not** disappear on
+its own. A leftover timer or cron line keeps invoking the old entrypoint --
+now against a missing dependency -- and errors every morning. Symptom: a
+`{stage}-cron.log` that is still growing, or `/logs/{stage}` still returning
+rows, for a stage the current code no longer has.
+
+The trigger lives in one of two places (fetcher stages started on cron and
+were later migrated to user timers, so a retired one may hide in either).
+Check both:
+
+```sh
+# 1. user systemd timers
+systemctl --user list-timers --all --no-pager
+# if a `fetcher-<stage>.timer` is listed:
+systemctl --user disable --now fetcher-<stage>.timer
+rm ~/.config/systemd/user/fetcher-<stage>.service \
+   ~/.config/systemd/user/fetcher-<stage>.timer
+systemctl --user daemon-reload
+
+# 2. crontab
+crontab -l                 # look for a `... fetcher <stage> ...` line
+crontab -e                 # delete it
+```
+
+Verify the next morning that `<stage>-cron.log` has gone quiet and
+`/logs/<stage>` stops gaining rows.
+
 ## fetcher-api.service
 
 The HTTP API (`fetcher serve`) as a **user** systemd unit -- no sudo
@@ -42,18 +105,14 @@ deploy user's home).
 
 ## fetcher-fetch.service + fetcher-fetch.timer (optional)
 
-**Not required for the OOM fix.** The subprocess-isolated PDF converter
-in `shared/convert.py` is what actually stopped the 2026-07-03/04 tower
-OOMs. Tower stays on its existing cron entry unless you opt in.
+Optional replacement for the cron entry. `fetch` now pulls only metadata
+and embeds abstracts (no PDF/markdown conversion), so it is light; the
+timer is a convenience, not a fix. It adds three things cron does not give
+you:
 
-If you *do* want to replace cron with a systemd timer, it adds three
-things cron does not give you:
-
-- **A cgroup memory cap (`MemoryMax=2G`).** After the 2026-07-03/04 OOM
-  where a single pathological paper's PDF (2607.02140) pushed the fetch
-  process past 30 GB anon-rss, systemd will now SIGKILL the whole unit
-  if it exceeds 2 GB -- the kernel OOM-killer no longer gets to pick
-  an arbitrary victim on tower.
+- **A cgroup memory cap (`MemoryMax=2G`).** Defense-in-depth: any runaway
+  leak trips the cap and systemd SIGKILLs the unit instead of the kernel
+  OOM-killer picking an arbitrary victim on tower.
 - **Structured journal integration.** `journalctl --user -u fetcher-fetch`
   gets a clean per-invocation history. The append-mode log file at
   `/mnt/bertha/.../fetcher-cron.log` is still written for the HTTP API's
@@ -101,39 +160,6 @@ Verify the memory cap after a run:
 systemctl --user show fetcher-fetch.service \
     -p MemoryMax -p MemoryPeak -p Result
 # MemoryMax=2147483648
-# MemoryPeak=...         <-- should be well under 2G with the subprocess-
-#                            isolated PDF converter (shared/convert.py)
+# MemoryPeak=...         <-- metadata-only fetch stays well under 2G
 # Result=success
 ```
-
-## Rollout on tower (2026-07-04 OOM fix)
-
-The whole rollout is the pull; cron keeps firing at 05:00 with the fixed
-code. Installing the systemd timer (above) is optional and orthogonal.
-
-```sh
-ssh tower@tower.tail790bbc.ts.net -p 22884
-
-cd ~/apps/arxiv-firehose/fetcher
-git checkout main                          # tower had been on a feature branch
-git pull                                   # picks up shared/convert.py fix
-uv sync                                    # no new deps, but idempotent
-
-# Sanity-check on the known-pathological paper without waiting for
-# tomorrow's 05:00 timer. This runs the full fetch (~3.5 h); use a
-# scratch data dir so the production data isn't touched:
-mkdir -p /tmp/fetch-smoketest
-/home/tower/.local/bin/uv run fetcher fetch --data-dir /tmp/fetch-smoketest \
-    2>&1 | tee /tmp/fetch-smoketest.log
-# Look for "pdf 2607.02140: conversion failed: pdf conversion grandchild
-# died (exit=1)" -- that's the subprocess isolation catching the memory
-# bomb. Peak RSS of the fetcher process itself should stay < 500 MB.
-
-# Watch the next scheduled run:
-journalctl --user -u fetcher-fetch.service -f
-systemctl --user show fetcher-fetch.service -p MemoryPeak
-```
-
-The cron jobs (classify, and anything else) continue to run independently
-of the API and the fetch timer. The API only adds an on-demand path; it
-does not replace scheduled runs.

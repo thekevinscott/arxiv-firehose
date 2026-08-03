@@ -9,14 +9,11 @@ The real network is replaced two ways:
 - ``arxiv``: swaps ``shared.http.http_get`` for a fixture-backed
   fake. ``arxiv.calls`` records exactly the URLs the production code
   requested (with cachetta inert, every request is observable).
-- ``fake_classifier``: a Classifier wired through the SDK's public
-  ``classifier=`` parameter -- never patched.
 
 No monkeypatching. All redirection uses ``unittest.mock.patch.object``
 through context managers.
 """
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -25,18 +22,22 @@ import httpx
 import pytest
 from cachetta.utils.cache_fn import _Cached
 
-from fetcher.commands.classify import Classifier
+from fetcher.commands import embed as embed_mod
 from fetcher.shared import http
-from fetcher.shared.convert import Converter
 
 FIXTURES = Path(__file__).parent / "__fixtures__"
 
-# Sentinel bodies the fake converter returns. Long enough to clear
-# convert._is_substantial (>= 200 non-whitespace chars), so a test can assert
-# paper.md holds exactly what the converter produced.
-FAKE_HTML_MARKDOWN = "# Markdown from HTML\n\n" + "converted body text. " * 20
-FAKE_LATEX_MARKDOWN = "# Markdown from LaTeX\n\n" + "converted body text. " * 20
-FAKE_PDF_MARKDOWN = "# Markdown from PDF\n\n" + "converted body text. " * 20
+
+class _FakeEmbedder:
+    """Offline stand-in for the tower HTTP embedder.
+
+    ``embed.run`` only needs ``encode(list[str]) -> EMBED_DIM-length
+    vectors``; these tests assert counts and file presence, not vector
+    content, so a constant non-zero vector is enough."""
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        vec = [1.0] + [0.0] * (embed_mod.EMBED_DIM - 1)
+        return [list(vec) for _ in texts]
 
 # A data dir is bootstrapped with this config so a run tracks exactly one
 # category (the fixture answers any day-slice query with the same Atom
@@ -50,8 +51,6 @@ include = ["cs.LG"]
 [fetch]
 source = "arxiv"
 concurrency = 1
-latex_fallback = true
-pdf_fallback = true
 
 [ingest]
 backfill_days = 2
@@ -69,16 +68,6 @@ def _resolve_fixture(url: str) -> Path | None:
         # collapses the repeats, mirroring how overlapping real slices
         # re-serve already-known papers.
         return FIXTURES / "api_query.xml"
-    if "/html/" in url:
-        ident = url.rsplit("/html/", 1)[1].replace("/", "_")
-        return FIXTURES / f"html_{ident}.html"
-    if "/pdf/" in url:
-        ident = url.rsplit("/pdf/", 1)[1].replace("/", "_")
-        return FIXTURES / f"pdf_{ident}.pdf"
-    if "/e-print/" in url:
-        ident = url.rsplit("/e-print/", 1)[1].replace("/", "_")
-        targz = FIXTURES / f"eprint_{ident}.tar.gz"
-        return targz if targz.exists() else FIXTURES / f"eprint_{ident}.pdf"
     return None
 
 
@@ -102,8 +91,8 @@ def no_cachetta():
     function; its ``__call__`` is the single dispatch point for the
     whole library at runtime. Patching it to forward to ``self._fn``
     (the bare original, stored at decoration time) turns every cache --
-    feeds, papers, html, llm, future ones -- into a passthrough. No
-    disk reads, no disk writes, no cache state anywhere.
+    feeds, papers, future ones -- into a passthrough. No disk reads, no
+    disk writes, no cache state anywhere.
 
     Cachetta's own behavior is covered by its own test suite.
     """
@@ -111,6 +100,17 @@ def no_cachetta():
         return self._fn(*args, **kwargs)
 
     with patch.object(_Cached, "__call__", bypass):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def fake_embedder():
+    """Keep the embed stage offline for every integration test.
+
+    ``embed.run`` builds its embedder via ``embed.load_embedder`` when no
+    ``model=`` is passed (the SDK path fetch uses). Patch that factory to
+    the offline fake so ``fetch``/``embed`` never call tower's network."""
+    with patch.object(embed_mod, "load_embedder", lambda: _FakeEmbedder()):
         yield
 
 
@@ -134,105 +134,9 @@ def arxiv():
         yield SimpleNamespace(calls=calls)
 
 
-def _fake_latex(eprint: bytes) -> str:
-    """Stand-in for convert.latex_to_markdown: mirrors its contract of raising
-    ValueError when the e-print archive carries no LaTeX (a PDF-only body)."""
-    if eprint[:4] == b"%PDF":
-        raise ValueError("e-print archive has no LaTeX source")
-    return FAKE_LATEX_MARKDOWN
-
-
-@pytest.fixture
-def fake_converter() -> Converter:
-    """A Converter that never calls arxiv2md, pypandoc or pymupdf4llm.
-
-    It returns deterministic sentinel markdown so an integration test can
-    assert what fetch wrote without depending on the real libraries.
-    """
-    return Converter(
-        html=lambda html: FAKE_HTML_MARKDOWN,
-        latex=_fake_latex,
-        pdf=lambda pdf: FAKE_PDF_MARKDOWN,
-    )
-
-
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
     d = tmp_path / "data"
     d.mkdir()
     (d / "config.toml").write_text(CONFIG_TOML)
     return d
-
-
-def _write_prompts_artifact(folder: Path, output_name: str) -> Path:
-    """A minimal CoaxedPrompt artifact: prompt.jinja + meta.json.
-
-    Mirrors what ``coax`` would produce -- one Jinja template and the schema
-    for a single boolean output. Lets integration tests exercise the real
-    ``CoaxedPrompt`` without depending on the compile step.
-    """
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "prompt.jinja").write_text("Question: {{ abstract }}\n")
-    meta = {
-        "output_name": output_name,
-        "fields": {
-            "inputs": {"abstract": {"type": "str"}},
-            "output": {"type": "bool"},
-        },
-    }
-    (folder / "meta.json").write_text(json.dumps(meta))
-    return folder
-
-
-@pytest.fixture
-def prompts_dirs(tmp_path: Path) -> list[Path]:
-    """Two compiled prompts artifacts the classify tests share.
-
-    ``is_about_ml`` and ``is_about_markdown`` -- chosen so the fake
-    classifier can deterministically light up one but not the other based
-    on the fixture papers' abstracts.
-    """
-    ml = _write_prompts_artifact(tmp_path / "prompts" / "is-about-ml", "is_about_ml")
-    md = _write_prompts_artifact(
-        tmp_path / "prompts" / "is-about-markdown", "is_about_markdown"
-    )
-    return [ml, md]
-
-
-@pytest.fixture
-def data_dir_classify(data_dir: Path, prompts_dirs: list[Path]) -> Path:
-    """A ``data_dir`` wired for classify: ``[classify].prompts_dirs`` in
-    config.toml points at the fixture prompts artifacts. The taxonomy
-    (the set of category ids) is derived from those prompts at runtime --
-    no separate categories file to keep in sync.
-    """
-    paths = ", ".join(f'"{p}"' for p in prompts_dirs)
-    cfg = (data_dir / "config.toml").read_text()
-    cfg += (
-        "\n[classify]\n"
-        f"prompts_dirs = [{paths}]\n"
-        'model = "test-model"\n'
-    )
-    (data_dir / "config.toml").write_text(cfg)
-    return data_dir
-
-
-@pytest.fixture
-def fake_classifier() -> Classifier:
-    """A Classifier that decides each flag from the prompt's text.
-
-    No LLM -- the fake reads the rendered prompt and lights up the schema's
-    single field. The fixture abstracts contain the word "markdown" for
-    papers 00001-00003 but not 00004, so ``is_about_markdown`` separates
-    the four-paper fixture cleanly. ``is_about_ml`` stays False (the word
-    "ml" is not in any abstract verbatim) so a test can assert both
-    branches of the schema field.
-    """
-    def call(prompt, schema):
-        field = next(iter(schema.model_json_schema()["properties"]))
-        if field == "is_about_markdown":
-            value = "markdown" in prompt.lower()
-        else:
-            value = False
-        return schema(**{field: value})
-    return Classifier(call=call)

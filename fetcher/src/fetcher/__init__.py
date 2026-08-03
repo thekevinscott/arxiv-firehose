@@ -7,14 +7,11 @@ The public SDK lives in ``api.py`` and is re-exported here. The CLI
 from .api import (
     DEFAULT_CACHE_DIR,
     DEFAULT_DATA_DIR,
-    classify,
     embed,
     fetch,
     pull,
-    render_markdown,
     status,
     sync_metadata,
-    train_categories,
 )
 
 __version__ = "0.1.0"
@@ -23,12 +20,9 @@ __all__ = [
     "__version__",
     "DEFAULT_CACHE_DIR",
     "DEFAULT_DATA_DIR",
-    "classify",
     "embed",
     "fetch",
     "pull",
-    "render_markdown",
     "status",
     "sync_metadata",
-    "train_categories",
 ]

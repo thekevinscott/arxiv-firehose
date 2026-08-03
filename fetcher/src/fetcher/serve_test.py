@@ -3,7 +3,7 @@
 The FastAPI app is exercised in-process through starlette's
 ``TestClient`` -- no port binding, no uvicorn. Subprocess spawning is
 replaced with a recording fake so a test never starts a real
-``fetcher classify`` run.
+``fetcher fetch`` run.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -97,17 +96,6 @@ def describe_post_fetch():
         assert calls[0][0] == "fetch"
 
 
-def describe_post_classify():
-    def it_spawns_and_returns_a_job(client: TestClient, spawns):
-        _, calls, _ = spawns
-        r = client.post("/classify")
-        assert r.status_code == 202
-        body = r.json()
-        assert body["kind"] == "classify"
-        assert body["log_path"].endswith("classify-cron.log")
-        assert calls[0][0] == "classify"
-
-
 def describe_post_embed():
     def it_spawns_and_returns_a_job(client: TestClient, spawns):
         _, calls, _ = spawns
@@ -117,19 +105,6 @@ def describe_post_embed():
         assert body["kind"] == "embed"
         assert body["log_path"].endswith("embed-cron.log")
         assert calls[0][0] == "embed"
-
-
-def describe_post_render():
-    def it_spawns_and_returns_a_job(client: TestClient, spawns):
-        # Rendering paper bodies is explicit-only (not a fetch stage);
-        # this endpoint is the HTTP trigger for it.
-        _, calls, _ = spawns
-        r = client.post("/render")
-        assert r.status_code == 202
-        body = r.json()
-        assert body["kind"] == "render"
-        assert body["log_path"].endswith("render-cron.log")
-        assert calls[0][0] == "render"
 
 
 def describe_post_pull():
@@ -158,23 +133,23 @@ def describe_duplicate_concurrent_jobs():
         client: TestClient, spawns
     ):
         _, calls, _ = spawns
-        first = client.post("/classify").json()
+        first = client.post("/embed").json()
         # Second POST while the first is still "running" (FakePopen
         # default returncode is None) should be rejected, not spawn again.
-        r = client.post("/classify")
+        r = client.post("/embed")
         assert r.status_code == 409
         body = r.json()
-        assert body["detail"]["error"] == "classify already running"
+        assert body["detail"]["error"] == "embed already running"
         assert body["detail"]["job"]["id"] == first["id"]
         # Crucially: only one spawn happened.
         assert len(calls) == 1
 
-    def it_allows_concurrent_fetch_and_classify(
+    def it_allows_concurrent_fetch_and_embed(
         client: TestClient, spawns
     ):
         _, calls, _ = spawns
         assert client.post("/fetch").status_code == 202
-        assert client.post("/classify").status_code == 202
+        assert client.post("/embed").status_code == 202
         assert len(calls) == 2
 
     def it_allows_a_new_run_after_the_previous_finished(
@@ -184,10 +159,10 @@ def describe_duplicate_concurrent_jobs():
         # First spawn returns a popen we can flip to "finished" later.
         finished = FakePopen()
         next_popens.append(finished)
-        first = client.post("/classify").json()
+        first = client.post("/embed").json()
         finished.returncode = 0
         # Now a new POST should succeed -- the prior job exited.
-        second = client.post("/classify").json()
+        second = client.post("/embed").json()
         assert second["id"] != first["id"]
         assert len(calls) == 2
 
@@ -195,11 +170,11 @@ def describe_duplicate_concurrent_jobs():
 def describe_get_jobs():
     def it_lists_started_jobs(client: TestClient):
         client.post("/fetch")
-        client.post("/classify")
+        client.post("/embed")
         r = client.get("/jobs")
         assert r.status_code == 200
         jobs = r.json()
-        assert {j["kind"] for j in jobs} == {"fetch", "classify"}
+        assert {j["kind"] for j in jobs} == {"fetch", "embed"}
 
 
 def describe_get_job():
@@ -216,12 +191,12 @@ def describe_get_job():
 
 def describe_get_log():
     def it_tails_the_cron_log_file(client: TestClient, log_dir: Path):
-        log = log_dir / "classify-cron.log"
+        log = log_dir / "embed-cron.log"
         log.write_text("\n".join(f"line {i}" for i in range(100)) + "\n")
-        r = client.get("/logs/classify", params={"lines": 5})
+        r = client.get("/logs/embed", params={"lines": 5})
         assert r.status_code == 200
         body = r.json()
-        assert body["path"].endswith("classify-cron.log")
+        assert body["path"].endswith("embed-cron.log")
         assert body["lines"] == [f"line {i}" for i in range(95, 100)]
 
     def it_returns_empty_when_log_missing(client: TestClient):
@@ -231,7 +206,7 @@ def describe_get_log():
 
 
 class _SearchFakeModel:
-    """Fake ``StaticModel`` for /search tests: one axis per keyword.
+    """Fake embedder for /search tests: one axis per keyword.
 
     Encodes text into a fixed vector by counting occurrences of a small
     keyword set on distinct axes. That lets a test assert semantic
@@ -241,18 +216,20 @@ class _SearchFakeModel:
 
     KEYWORDS = ("diffusion", "compiler", "protein", "quantum")
 
-    def encode(self, texts: list[str]) -> np.ndarray:
-        arr = np.zeros((len(texts), embed_mod.EMBED_DIM), dtype=np.float32)
-        for i, t in enumerate(texts):
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        vectors = []
+        for t in texts:
+            vec = [0.0] * embed_mod.EMBED_DIM
             lower = t.lower()
             for j, kw in enumerate(self.KEYWORDS):
                 if kw in lower:
-                    arr[i, j] = 1.0
+                    vec[j] = 1.0
             # Zero vectors would make cosine distance NaN; nudge unrelated
             # texts onto a dedicated axis so distance stays defined.
-            if not arr[i, : len(self.KEYWORDS)].any():
-                arr[i, len(self.KEYWORDS)] = 1.0
-        return arr
+            if not any(vec[: len(self.KEYWORDS)]):
+                vec[len(self.KEYWORDS)] = 1.0
+            vectors.append(vec)
+        return vectors
 
 
 @pytest.fixture
@@ -260,7 +237,7 @@ def search_data_dir(tmp_path: Path) -> Path:
     """A data dir seeded with three papers + their embeddings.json.
 
     Uses the deterministic keyword-axis fake so /search tests can assert
-    exact ordering. Real model2vec is never loaded in these tests.
+    exact ordering. The real HTTP embedder is never called in these tests.
     """
     d = tmp_path / "data"
     d.mkdir()

@@ -8,34 +8,49 @@ from today's ``sync-metadata`` and historical gaps go through the same
 running to convergence is what we want by default.
 
 Storage: a single JSON array at ``data_dir/embeddings.json``, one object
-per paper: ``{"arxiv_id": str, "embedding": [float, ...]}`` (256 dims,
+per paper: ``{"arxiv_id": str, "embedding": [float, ...]}`` (1024 dims,
 rounded to 6 decimals). dirsql scans this file into the ``embeddings``
 table (see ``shared/dirsql_schema.py``), where sqlite-vec's
 ``vec_distance_cosine`` powers ``/search`` -- the same SQLite surface as
-``/sql``, no separate engine. Rewriting the whole file each run is fine
-at ~11 K rows (~25 MB) and keeps the write atomic via ``.part + rename``.
+``/sql``, no separate engine. The whole file is rewritten each run
+(atomic via ``.part + rename``); at ~34 K rows the 1024-dim vectors make
+it ~300 MB, still a sub-second write on local disk.
 
-Model: model2vec ``potion-base-8M`` -- static, CPU-only, 256-dim, fast.
-Loaded lazily so ``import fetcher`` (used by status, sync-metadata,
-tests) doesn't pay the model-load cost.
+Model: ``Qwen3-Embedding-0.6B`` served by tower's llama-server over its
+OpenAI-compatible ``/v1/embeddings`` endpoint (GPU, local, free). The
+endpoint and model id are overridable via ``ARXIV_FIREHOSE_EMBED_BASE_URL``
+and ``ARXIV_FIREHOSE_EMBED_MODEL`` so a laptop run can point elsewhere.
+The HTTP client is built lazily (``load_embedder``) so ``import fetcher``
+(used by status, sync-metadata, tests) pays no startup cost.
 
 Per-paper errors (bad metadata.json, empty abstract) are logged and
-skipped. A single broken folder must not abort the run -- same posture
-as classify.
+skipped. A single broken folder must not abort the run.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
+
+import httpx
 
 from ..shared.atomic_write import atomic_write_text
 from ..shared.paths import iter_paper_dirs
+from ..shared.retry import with_retry
 
-MODEL_NAME = "minishlab/potion-base-8M"
-EMBED_DIM = 256
+# tower's llama-server router (see systems/tower.md); host 8180 -> container
+# 8080. A dummy value is fine for a laptop run that overrides the env var.
+DEFAULT_BASE_URL = "http://tower.tail790bbc.ts.net:8180"
+MODEL_NAME = os.environ.get("ARXIV_FIREHOSE_EMBED_MODEL", "Qwen3-Embedding-0.6B-f16")
+EMBED_DIM = 1024
 EMBEDDINGS_FILE = "embeddings.json"
+
+# Per-request abstract count. Small enough to keep each request cheap and
+# well under the server's batch limits; the whole pending set is chunked.
+_BATCH = 32
+_TIMEOUT = 120.0
 
 
 def embeddings_path(data_dir: Path) -> Path:
@@ -90,11 +105,72 @@ def _iter_pending(
     return pending
 
 
-def _load_model():
-    """Lazy import: ``import fetcher`` shouldn't drag in model2vec."""
-    from model2vec import StaticModel
+def _is_retryable(exc: Exception) -> bool:
+    """Transport hiccups and transient 5xx/429 are worth a retry.
 
-    return StaticModel.from_pretrained(MODEL_NAME)
+    The router loads models on demand, so the first request after an idle
+    period (or one that evicts a chat model) can briefly 503 while the GGUF
+    warms up -- exactly the case retrying rescues."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (429, 500, 502, 503, 504)
+    return False
+
+
+class _HTTPEmbedder:
+    """``.encode(list[str]) -> list[list[float]]`` over an OpenAI-compatible
+    ``/v1/embeddings`` endpoint -- the same call shape ``embed.run`` and
+    ``/search`` expect from the old model2vec ``StaticModel`` seam.
+
+    Inputs are chunked into ``batch`` per request; each request retries the
+    on-demand model load with exponential backoff. Response rows are
+    reordered by their ``index`` so a batch's vectors line up with inputs."""
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        timeout: float = _TIMEOUT,
+        batch: int = _BATCH,
+    ) -> None:
+        self._url = base_url.rstrip("/") + "/v1/embeddings"
+        self._model = model
+        self._timeout = timeout
+        self._batch = batch
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self._batch):
+            vectors.extend(self._embed_chunk(texts[start : start + self._batch]))
+        return vectors
+
+    def _embed_chunk(self, chunk: list[str]) -> list[list[float]]:
+        def _call() -> dict:
+            resp = httpx.post(
+                self._url,
+                json={"model": self._model, "input": chunk},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        payload = with_retry(
+            _call, is_retryable=_is_retryable, attempts=5, base=2.0
+        )
+        rows = sorted(payload["data"], key=lambda d: d["index"])
+        return [row["embedding"] for row in rows]
+
+
+def load_embedder() -> _HTTPEmbedder:
+    """Build the HTTP embedder from env (or the tower defaults).
+
+    Shared by ``run`` and ``serve``'s ``/search`` so documents and queries
+    ride the same model. Cheap to construct (no network at build time), so
+    callers may cache it or not."""
+    base_url = os.environ.get("ARXIV_FIREHOSE_EMBED_BASE_URL", DEFAULT_BASE_URL)
+    return _HTTPEmbedder(base_url, MODEL_NAME)
 
 
 def _write_embeddings(
@@ -138,8 +214,9 @@ def run(
     neither embedded nor skipped -- they log a WARNING and re-surface on
     the next run.
 
-    *model* is a test seam: any object with ``encode(list[str]) -> ndarray``
-    (shape ``(N, EMBED_DIM)``). ``None`` loads the real potion-base-8M.
+    *model* is a test seam: any object with ``encode(list[str]) ->``
+    a sequence of ``EMBED_DIM``-length vectors. ``None`` builds the real
+    HTTP embedder against tower's llama-server.
     """
     prior = _read_rows(data_dir)
     existing = {r["arxiv_id"] for r in prior}
@@ -156,8 +233,8 @@ def run(
         return {"embedded": 0, "skipped": len(existing), "total": len(existing)}
 
     if model is None:
-        log.info("embed: loading %s", MODEL_NAME)
-        model = _load_model()
+        log.info("embed: using %s", MODEL_NAME)
+        model = load_embedder()
     log.info("embed: encoding %d abstracts", len(pending))
     ids = [p[0] for p in pending]
     texts = [p[1] for p in pending]

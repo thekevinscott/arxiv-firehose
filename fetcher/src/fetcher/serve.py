@@ -1,22 +1,21 @@
 """HTTP API: thin wrapper over ``api.py`` for remote ops over tailnet.
 
-The goal is to make ``status`` / ``fetch`` / ``classify`` callable from
-anywhere on the tailnet without SSHing into the box. The web layer is
-parallel to ``cli.py``: both are thin wrappers over the SDK in
-``api.py``; the SDK functions hold all behavior.
+The goal is to make ``status`` / ``fetch`` callable from anywhere on the
+tailnet without SSHing into the box. The web layer is parallel to
+``cli.py``: both are thin wrappers over the SDK in ``api.py``; the SDK
+functions hold all behavior.
 
-Long jobs are fire-and-forget. ``fetch`` runs in minutes and ``classify``
-in hours, so the HTTP path can't block until completion. ``POST /fetch``
-and ``POST /classify`` spawn the CLI as a subprocess, register the job,
-and return a ``Job`` immediately (HTTP 202). Clients tail
-``GET /logs/{kind}`` (the shared cron log) or poll ``GET /jobs/{id}``
-for pid + exit code.
+Long jobs are fire-and-forget. ``fetch`` runs in minutes, so the HTTP
+path can't block until completion. ``POST /fetch`` spawns the CLI as a
+subprocess, registers the job, and returns a ``Job`` immediately
+(HTTP 202). Clients tail ``GET /logs/{kind}`` (the shared cron log) or
+poll ``GET /jobs/{id}`` for pid + exit code.
 
 Subprocess (not in-process ``api.fetch()``) is deliberate:
 
-- crash isolation -- a broken classify never takes the API down
+- crash isolation -- a broken run never takes the API down
 - one code path -- cron, manual CLI, and the HTTP API all run the same
-  ``fetcher fetch`` / ``fetcher classify`` invocation
+  ``fetcher fetch`` invocation
 - no asyncio entanglement with cachetta's sync internals or httpx-sync
 - log output lands in the same file the cron writes to, so ``tail -f``
   works regardless of how a run was triggered
@@ -46,7 +45,7 @@ from . import api
 from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
-JobKind = Literal["fetch", "classify", "embed", "pull", "render"]
+JobKind = Literal["fetch", "embed", "pull"]
 
 # Default row cap when the client omits ``limit`` and doesn't write a
 # custom SQL. The cap only matters for the built-in ORDER BY distance
@@ -86,7 +85,7 @@ def _build_search_cte(query_vec: list[float]) -> str:
     """
 
 # Per-job log file naming. We *also* write to the shared cron log so a
-# single ``tail -f .../classify-cron.log`` shows every run regardless of
+# single ``tail -f .../fetch-cron.log`` shows every run regardless of
 # how it was triggered. The shared file is the read path; per-job is just
 # an idea we deliberately did not take.
 CRON_LOG_NAME = "{kind}-cron.log"
@@ -114,7 +113,7 @@ class JobRegistry:
     durable and a fresh ``GET /logs/{kind}`` will still show every run.
 
     Eviction drops the oldest *finished* job once over capacity; running
-    jobs are never evicted so a long classify can't disappear from
+    jobs are never evicted so a long fetch can't disappear from
     ``GET /jobs`` mid-flight.
     """
 
@@ -222,7 +221,7 @@ class SearchRequest(BaseModel):
     """Semantic search request body.
 
     - ``q``: the natural-language query. Embedded server-side into a
-      256-dim vector; the server wraps the query in a ``WITH search AS
+      1024-dim vector; the server wraps the query in a ``WITH search AS
       (...)`` CTE that carries a pre-computed ``distance`` column
       (sqlite-vec ``vec_distance_cosine``) plus paper metadata.
     - ``sql``: optional read-only SQLite SELECT run verbatim against the
@@ -248,31 +247,36 @@ class SqlRequest(BaseModel):
     """Read-only SQL against the dirsql schema.
 
     ``sql`` runs verbatim against the tables defined in
-    ``shared.dirsql_schema`` (``papers``, ``metadata``,
-    ``papers_categories``, ``categories``, ``markdown``, ``no_markdown``).
+    ``shared.dirsql_schema`` (``papers``, ``metadata``, ``embeddings``).
     dirsql's authorizer rejects any non-read statement, so this is the
-    metadata analogue of /search's DuckDB-over-embeddings surface --
-    tailnet-only, no sandbox beyond read-only.
+    metadata analogue of /search's embedding surface -- tailnet-only, no
+    sandbox beyond read-only.
     """
 
     sql: str
 
 
-# Process-lifetime embedding model cache. The static model is ~30 MB
-# and loads in a few seconds; we amortize it across requests.
+# Process-lifetime embedder cache. The HTTP embedder holds no state and is
+# cheap to build; caching just avoids re-reading env on every /search.
 _MODEL = None
 _MODEL_LOCK = threading.Lock()
 
+# Qwen3-Embedding is asymmetric: documents (abstracts) are embedded raw, but
+# queries get an instruction prefix. Applying it only to the query side is
+# what the model was trained for and measurably lifts retrieval.
+_QUERY_INSTRUCTION = (
+    "Instruct: Given a search query, retrieve relevant arXiv paper "
+    "abstracts.\nQuery: "
+)
+
 
 def _get_model():
-    """Return the module-level model2vec instance, loading it once."""
+    """Return the module-level HTTP embedder, building it once."""
     global _MODEL
     if _MODEL is None:
         with _MODEL_LOCK:
             if _MODEL is None:
-                from model2vec import StaticModel
-
-                _MODEL = StaticModel.from_pretrained(embed_mod.MODEL_NAME)
+                _MODEL = embed_mod.load_embedder()
     return _MODEL
 
 
@@ -301,7 +305,7 @@ def _spawn_cli(
 
     *args* carries per-job positional arguments (pull's arxiv ids).
     ``start_new_session=True`` puts the child in its own process group so
-    the API can restart without dragging classify down with it.
+    the API can restart without dragging a running job down with it.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fh = log_path.open("ab")
@@ -374,10 +378,6 @@ def make_app(
     def post_fetch() -> Job:
         return _start("fetch")
 
-    @app.post("/classify", status_code=202)
-    def post_classify() -> Job:
-        return _start("classify")
-
     @app.post("/embed", status_code=202)
     def post_embed() -> Job:
         """Trigger a standalone embed run.
@@ -399,16 +399,6 @@ def make_app(
         a 409 carrying the in-flight job.
         """
         return _start("pull", tuple(req.ids))
-
-    @app.post("/render", status_code=202)
-    def post_render() -> Job:
-        """Render markdown for every paper missing one, as a background job.
-
-        Explicit-only: no cron triggers rendering. This is the heavy
-        path (up to three paced downloads per paper), so it runs only
-        when a human asks for paper bodies.
-        """
-        return _start("render")
 
     @app.get("/jobs")
     def list_jobs() -> list[Job]:
@@ -448,7 +438,10 @@ def make_app(
                 ),
             )
 
-        query_vec = [float(x) for x in _get_model().encode([req.q])[0]]
+        query_vec = [
+            float(x)
+            for x in _get_model().encode([_QUERY_INSTRUCTION + req.q])[0]
+        ]
         cte = _build_search_cte(query_vec)
 
         if req.sql:
@@ -475,10 +468,10 @@ def make_app(
         The general-purpose counterpart to /search: both ride the same
         dirsql/SQLite surface, but /search wraps the query in a vector
         CTE while /sql runs the raw statement against every table
-        (papers, metadata EAV, embeddings, presence and classification
-        tables). dirsql scans ``data_dir.parent`` and enforces read-only,
-        so a write or a typo comes back as a 400 carrying the engine's
-        own message rather than an opaque 500.
+        (papers, metadata EAV, embeddings). dirsql scans
+        ``data_dir.parent`` and enforces read-only, so a write or a typo
+        comes back as a 400 carrying the engine's own message rather
+        than an opaque 500.
         """
         from .shared.dirsql_schema import query
 

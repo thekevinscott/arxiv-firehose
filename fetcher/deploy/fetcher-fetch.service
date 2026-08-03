@@ -11,12 +11,11 @@ Environment=ARXIV_FIREHOSE_LOG_DIR=/mnt/bertha/data/arxiv-firehose
 ExecStart=%h/.local/bin/uv run fetcher fetch \
     --data-dir /mnt/bertha/data/arxiv-firehose/data
 
-# Safety net after 2026-07-03/04 OOM: the render loop's PDF path is now
-# subprocess-isolated (see shared/convert.py), so a pathological paper eats
-# its own grandchild's memory, not the fetch process's. This cgroup cap is
-# defense-in-depth -- any leak we haven't found yet trips MemoryMax and
-# systemd SIGKILLs the whole unit instead of the kernel OOM-killer picking
-# an arbitrary victim on tower (llama-server, Postgres, ...).
+# Defense-in-depth cgroup cap. fetch now pulls only metadata + embeds
+# abstracts (no PDF/markdown conversion), so the OOM footgun is gone, but
+# any leak we haven't found yet trips MemoryMax and systemd SIGKILLs the
+# whole unit instead of the kernel OOM-killer picking an arbitrary victim
+# on tower (llama-server, Postgres, ...).
 MemoryMax=2G
 # Give the process a chance to log via MemoryHigh (a soft cap that triggers
 # reclaim before MemoryMax's hard kill).

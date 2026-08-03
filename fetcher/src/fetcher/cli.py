@@ -3,13 +3,11 @@
 A thin typer wrapper over the Python SDK in ``api.py``: each command parses
 flags and delegates. No behavior lives here -- new behavior goes in the SDK.
 
-Two cron-level commands -- ``fetch`` (daily ingest) and ``classify``
-(daily labeling) -- ``status`` for read-only counts, ``render`` (the
-explicit-only markdown pass; no cron triggers it), and
-``train-categories`` (a developer command) that walks a labels root and
-compiles every category subdir into a prompt artifact. The remaining
-fetch stage (``sync_metadata``) is SDK-only; for granular debugging
-call it from a REPL.
+One cron-level command -- ``fetch`` (daily ingest: sync metadata, then
+embed abstracts) -- plus ``status`` for read-only counts, ``pull`` for
+bespoke by-id retrieval, ``embed`` for a standalone embedding backfill,
+and ``sql`` / ``serve`` for query and HTTP access. The ``sync_metadata``
+stage is SDK-only; for granular debugging call it from a REPL.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ import typer
 from . import api
 
 app = typer.Typer(
-    help="Maintain a local mirror of arxiv papers as markdown (plus metadata).",
+    help="Maintain a local mirror of arxiv paper metadata (abstracts) with semantic search.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -78,52 +76,6 @@ def pull(
     )
 
 
-@app.command("render")
-def render(
-    data_dir: Path = DataDir,
-    config: Optional[Path] = ConfigFile,
-    verbose: bool = Verbose,
-    limit: Optional[int] = Limit,
-    dry_run: bool = DryRun,
-) -> None:
-    """Render markdown for every known paper missing one.
-
-    Explicit-only -- no cron or auto-executing script runs this. It is
-    the heavy path (up to three paced downloads per paper); search and
-    classify only need abstracts, which fetch already mirrors.
-    """
-    counts = api.render_markdown(
-        data_dir, config,
-        verbose=verbose, limit=limit, dry_run=dry_run,
-    )
-    typer.echo(
-        f"html={counts['html']} latex={counts['latex']} "
-        f"pdf={counts['pdf']} absent={counts['absent']} "
-        f"failed={counts['failed']} skipped={counts['skipped']}"
-    )
-
-
-@app.command("classify")
-def classify(
-    data_dir: Path = DataDir,
-    config: Optional[Path] = ConfigFile,
-    verbose: bool = Verbose,
-    limit: Optional[int] = Limit,
-    dry_run: bool = DryRun,
-) -> None:
-    """Classify each paper's abstract into topic flags.
-
-    Idempotency lives in the dirsql missing-pairs query: a paper with
-    a classifications/<cat>.json on disk is skipped server-side. To
-    re-poll the LLM for a pair, delete its file; cachetta will serve
-    the prior response from disk anyway.
-    """
-    api.classify(
-        data_dir, config,
-        verbose=verbose, limit=limit, dry_run=dry_run,
-    )
-
-
 @app.command("embed")
 def embed(
     data_dir: Path = DataDir,
@@ -134,7 +86,7 @@ def embed(
 ) -> None:
     """Populate embeddings.json for every paper missing one.
 
-    Independent of ``render`` -- reads only ``metadata.json.abstract``.
+    Reads only ``metadata.json.abstract``.
     Runs to convergence: papers already in the file are skipped.
     Also runs as a stage inside ``fetch``; this entry point is for a
     standalone backfill / manual retrigger.
@@ -155,7 +107,7 @@ def status(
     data_dir: Path = DataDir,
     config: Optional[Path] = ConfigFile,
 ) -> None:
-    """Print counts: papers known, markdown on disk, classified."""
+    """Print counts: papers known, categories tracked, last sync, disk usage."""
     typer.echo(api.status(data_dir, config))
 
 
@@ -168,9 +120,8 @@ def sql(
 ) -> None:
     """Run one read-only SQL query against the dirsql schema; print JSON.
 
-    Tables: papers, metadata (EAV: paper_id/key/value), papers_categories,
-    categories, markdown, no_markdown. Writes are rejected by dirsql's
-    authorizer. Example:
+    Tables: papers, metadata (EAV: paper_id/key/value), embeddings.
+    Writes are rejected by dirsql's authorizer. Example:
 
         fetcher sql "SELECT primary_category, COUNT(*) n FROM papers GROUP BY 1"
     """
@@ -191,49 +142,6 @@ def serve(
 ) -> None:
     """Run the HTTP API. Foregrounded; use systemd for the daemon."""
     api.serve(data_dir, config, host=host, port=port)
-
-
-@app.command("train-categories")
-def train_categories(
-    labels_root: Path = typer.Argument(
-        Path("labels"),
-        help="Labels root; each subdir with _schema.json is a category.",
-    ),
-    prompts_root: Path = typer.Option(
-        Path("prompts"), "--prompts",
-        help="Where to write the compiled prompt artifacts.",
-    ),
-    optimizer: Optional[str] = typer.Option(
-        None, "--optimizer",
-        help="Optimizer: 'gepa' (LLM-tuned) or omitted (raw template).",
-    ),
-    model: Optional[str] = typer.Option(
-        None, "--model",
-        help="Model tag for --optimizer gepa (e.g. Qwen3.6-27B-Q4_K_M on llama.cpp).",
-    ),
-    base_url: str = typer.Option(
-        api.DEFAULT_CLASSIFY_BASE_URL, "--base-url",
-        help="OpenAI-compatible endpoint for --optimizer gepa.",
-    ),
-    data_dir: Path = DataDir,
-    verbose: bool = Verbose,
-) -> None:
-    """Compile every category under labels/ into a prompt artifact."""
-    results = api.train_categories(
-        labels_root, prompts_root, data_dir,
-        optimizer=optimizer,
-        model=model,
-        base_url=base_url,
-        verbose=verbose,
-    )
-    if not results:
-        typer.echo(f"train-categories: no categories under {labels_root}")
-        return
-    for name, info in results.items():
-        typer.echo(
-            f"train-categories: {info['source']:>5} {name} "
-            f"(hash {info['hash']}) -> {info['out']}"
-        )
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ import pytest
 from fetcher.shared.paths import (
     id_from_entry_id,
     iter_paper_dirs,
-    markdown_path,
     metadata_path,
     paper_dir,
     parse_id,
@@ -51,14 +50,8 @@ def describe_paper_paths():
         # the legacy id's '/' is slugified so it stays a single folder
         assert paper_dir(DD, "cs/0501001") == DD / "cs_0501001"
 
-    def it_derives_the_markdown_path():
-        assert markdown_path(DD, "2401.12345") == DD / "2401.12345" / "paper.md"
-
     def it_derives_the_metadata_path():
         assert metadata_path(DD, "2401.12345") == DD / "2401.12345" / "metadata.json"
-
-    def it_slugifies_a_legacy_markdown_path():
-        assert markdown_path(DD, "cs/0501001") == DD / "cs_0501001" / "paper.md"
 
 
 def describe_entry_id_extraction():

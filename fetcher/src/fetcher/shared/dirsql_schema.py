@@ -1,30 +1,19 @@
 """dirsql schema + factory for the arxiv-firehose data dir.
 
 fetcher uses dirsql **in-process** through this Python factory: the
-per-table ``extract`` callbacks parse the JSON inside
-``metadata.json`` / ``classifications/*.json`` and turn it into columns.
-The equivalent ``.dirsql.toml`` ``on-file`` hooks would shell out once
-per file; the in-process path is a plain function call, so we keep it.
+per-table ``extract`` callbacks parse the JSON inside ``metadata.json``
+and ``embeddings.json`` and turn it into columns. The equivalent
+``.dirsql.toml`` ``on-file`` hooks would shell out once per file; the
+in-process path is a plain function call, so we keep it.
 
-Tables exposed (no paper *content* -- no abstract text, no ``paper.md``
-body -- only metadata and presence markers):
+Tables exposed (no paper *content* -- no abstract text, no paper body --
+only metadata and the derived embedding vector):
 
-    papers              -- one row per paper folder (from metadata.json)
-    metadata            -- EAV rows: (id, paper_id, key, value), one per
-                           metadata.json field except the abstract
-    papers_categories   -- one row per (paper, category) outcome (from
-                           data/<id>/classifications/<cat>.json)
-    categories          -- one row per active category (from
-                           ROOT/categories/<cat>.json, materialized by
-                           classify.run from config.classify.prompts_dirs)
-    markdown            -- one row per data/<id>/paper.md (paper_id + bytes)
-    no_markdown         -- one row per data/<id>/.no_markdown marker
-
-The taxonomy of category ids lives in **two** mirrored places: the
-authored config (``[classify] prompts_dirs``) and the per-cat index
-files under ``ROOT/categories/`` that classify.run rewrites at the start
-of every run. Same pattern as ``papers`` -- materialize derived state as
-files dirsql can scan.
+    papers      -- one row per paper folder (from metadata.json)
+    metadata    -- EAV rows: (id, paper_id, key, value), one per
+                   metadata.json field except the abstract
+    embeddings  -- one row per paper (from data/embeddings.json), the
+                   abstract's vector for /search
 
 ``ROOT`` is the directory dirsql scans (defaults to the production
 location on tower; override with ``ARXIV_FIREHOSE_ROOT`` for local
@@ -151,46 +140,6 @@ def _extract_metadata_kv(path: str) -> list[dict]:
     return rows
 
 
-def _extract_paper_category(path: str) -> list[dict]:
-    obj = _read_json(path)
-    parts = Path(path).parts
-    # .../data/<arxiv_id>/classifications/<cat>.json
-    arxiv_id = parts[-3]
-    cat_id = Path(parts[-1]).stem
-    return [{
-        "paper_id": arxiv_id,
-        "category_id": cat_id,
-        "output": bool(obj.get("output", False)),
-    }]
-
-
-def _extract_category(path: str) -> list[dict]:
-    """One categories row per file under ``categories/``. The cat id is
-    the file's stem; ``prompts_dir`` is whatever classify.run wrote there
-    (kept around as a pointer for debugging -- not joined against)."""
-    obj = _read_json(path)
-    return [{
-        "category_id": Path(path).stem,
-        "prompts_dir": str(obj.get("prompts_dir", "")),
-    }]
-
-
-def _extract_markdown(path: str) -> list[dict]:
-    """One row per paper.md: the paper id and the file size in bytes.
-
-    Reads no content -- ``status`` only needs presence and byte totals, so
-    the size comes straight from ``stat`` (empty files land as 0 and are
-    filtered in SQL)."""
-    return [{
-        "paper_id": Path(path).parent.name,
-        "size_bytes": os.path.getsize(path),
-    }]
-
-
-def _extract_marker(path: str) -> list[dict]:
-    return [{"paper_id": Path(path).parent.name}]
-
-
 # (ddl, glob, extract) for every table. The order is fingerprinted, so
 # keep it stable; append new tables at the end.
 _TABLE_SPECS = (
@@ -213,39 +162,6 @@ _TABLE_SPECS = (
         "data/*/metadata.json",
         _extract_metadata_kv,
     ),
-    # No composite PRIMARY KEY -- dirsql appends synthetic columns after
-    # the DDL, and SQLite forbids columns after a table-level constraint.
-    # Uniqueness comes from the one-file-per-(paper, category) layout.
-    (
-        """CREATE TABLE papers_categories (
-            paper_id    TEXT NOT NULL,
-            category_id TEXT NOT NULL,
-            output      INTEGER NOT NULL
-        )""",
-        "data/*/classifications/*.json",
-        _extract_paper_category,
-    ),
-    (
-        """CREATE TABLE categories (
-            category_id TEXT PRIMARY KEY,
-            prompts_dir TEXT
-        )""",
-        "categories/*.json",
-        _extract_category,
-    ),
-    (
-        """CREATE TABLE markdown (
-            paper_id   TEXT PRIMARY KEY,
-            size_bytes INTEGER NOT NULL
-        )""",
-        "data/*/paper.md",
-        _extract_markdown,
-    ),
-    (
-        "CREATE TABLE no_markdown (paper_id TEXT PRIMARY KEY)",
-        "data/*/.no_markdown",
-        _extract_marker,
-    ),
     # Vector search surface: one row per paper, embedding as JSON-array
     # TEXT for sqlite-vec. Populated from the single embeddings.json at
     # the data-dir root (see commands/embed.py).
@@ -263,7 +179,9 @@ _TABLE_SPECS = (
 # DDL alone doesn't capture (the fingerprint already covers ddl + glob).
 # v2: papers.announced_at switched from month-from-id to parsed ISO, and
 # the embeddings table was added.
-_SCHEMA_VERSION = 2
+# v3: dropped the classification (papers_categories, categories) and
+# markdown (markdown, no_markdown) tables when those features were removed.
+_SCHEMA_VERSION = 3
 
 
 def _fingerprint() -> str:
@@ -339,19 +257,3 @@ def query(
         return await db.query(sql)
 
     return asyncio.run(_run())
-
-
-# Every (paper, category) pair that has no classification file yet. The
-# CROSS JOIN materializes the full grid; the LEFT JOIN + WHERE-NULL keeps
-# only the missing cells. Result: one row per LLM call this run needs to
-# make. Re-runs return only the *new* missing pairs; cachetta makes any
-# accidental repeat call free.
-MISSING_PAIRS_SQL = """
-SELECT p.arxiv_id AS paper_id, c.category_id AS category_id
-FROM papers p
-CROSS JOIN categories c
-LEFT JOIN papers_categories pc
-    ON pc.paper_id = p.arxiv_id AND pc.category_id = c.category_id
-WHERE pc.paper_id IS NULL
-ORDER BY p.arxiv_id, c.category_id
-""".strip()

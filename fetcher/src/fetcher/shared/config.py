@@ -27,13 +27,6 @@ DEFAULT_CACHE_DIR = Path(
 )
 DEFAULT_CACHE_DURATION = timedelta(days=3650)
 
-# Default OpenAI-compatible LLM endpoint for classify. Points at a local
-# llama.cpp server (the tower's serves Qwen on :8180). Not user-configurable
-# -- the LLM client reads these constants directly. If you need to point at
-# vLLM, Ollama, OpenAI, or another compatible gateway, edit these values.
-DEFAULT_CLASSIFY_BASE_URL = "http://localhost:8180/v1"
-DEFAULT_CLASSIFY_TIMEOUT_S = 60.0
-
 DEFAULT_CONFIG_TOML = """\
 [categories]
 # arxiv subject classifiers to track. The daily cron queries the export
@@ -59,12 +52,8 @@ include = [
 [fetch]
 # "arxiv" (HTTPS, rate-limited, free) is the only source in this prototype.
 source = "arxiv"
-# Hard cap on concurrent downloads. arxiv source must stay at 1.
+# Hard cap on concurrent requests. arxiv source must stay at 1.
 concurrency = 1
-# When a paper has no arxiv HTML, fall back to converting its LaTeX source.
-latex_fallback = true
-# Last resort: when a paper has no HTML and no usable LaTeX, convert its PDF.
-pdf_fallback = true
 
 [ingest]
 # Lookback window: every sync re-reads this many days of export-API day
@@ -72,16 +61,6 @@ pdf_fallback = true
 # missed days cost a real request). A missed cron day self-heals as long
 # as another run happens within the window.
 backfill_days = 90
-
-[classify]
-# Compiled coaxer prompt artifacts -- one per binary flag. Empty list
-# disables classify cleanly (the daily cron stays green while labels are
-# still being authored).
-prompts_dirs = []
-# Model tag served by the OpenAI-compatible endpoint (see
-# DEFAULT_CLASSIFY_BASE_URL in shared/config.py). Defaults to the llama.cpp
-# tag on tower; change to whatever your gateway serves.
-model = "Qwen3.6-27B-Q4_K_M"
 """
 
 
@@ -97,24 +76,16 @@ class CategoriesConfig(BaseModel):
 class FetchConfig(BaseModel):
     source: Literal["arxiv"] = "arxiv"
     concurrency: int = 1
-    latex_fallback: bool = True
-    pdf_fallback: bool = True
 
 
 class IngestConfig(BaseModel):
     backfill_days: int = 90
 
 
-class ClassifyConfig(BaseModel):
-    prompts_dirs: list[str] = Field(default_factory=list)
-    model: str = "Qwen3.6-27B-Q4_K_M"
-
-
 class Config(BaseModel):
     categories: CategoriesConfig = Field(default_factory=CategoriesConfig)
     fetch: FetchConfig = Field(default_factory=FetchConfig)
     ingest: IngestConfig = Field(default_factory=IngestConfig)
-    classify: ClassifyConfig = Field(default_factory=ClassifyConfig)
 
     def model_post_init(self, __context: object) -> None:
         if self.fetch.source == "arxiv" and self.fetch.concurrency != 1:

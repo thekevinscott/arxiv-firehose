@@ -6,9 +6,8 @@ paper worth tracing. Metadata comes from the export API's ``id_list=``
 query (the same Atom shape sync parses, with no version or category
 filter).
 
-Pull is metadata-only, like the daily ingest: search/classify/embed
-need abstracts, not paper bodies. Markdown arrives only when render is
-explicitly invoked (``fetcher render`` / ``POST /render``).
+Pull is metadata-only, like the daily ingest: search and embed need
+abstracts, not paper bodies. Paper bodies are never downloaded.
 
 Idempotency lives on disk, not in a cache: a paper whose folder already
 carries ``metadata.json`` is skipped before any network call, so

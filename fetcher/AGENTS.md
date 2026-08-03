@@ -10,7 +10,7 @@ that repo's `AGENTS.md` is the reference.
 ## Ops: prefer the HTTP API over SSH
 
 The fetcher exposes an HTTP API (`fetcher serve`) so `status` / `fetch` /
-`classify` can be triggered from anywhere on the tailnet without SSHing
+`embed` can be triggered from anywhere on the tailnet without SSHing
 into the deployment box. On tower it runs as `fetcher-api.service`
 (user systemd) bound to `0.0.0.0:8087`. Tower is behind home-router
 NAT with no port-forward for 8087, so the API is reachable from the
@@ -26,13 +26,12 @@ deploying new code.
 ```sh
 BASE=http://tower.tail790bbc.ts.net:8087
 
-curl -s $BASE/status                          # paper / classified counts
-curl -s $BASE/logs/classify?lines=30          # tail the classify cron log
+curl -s $BASE/status                          # paper counts
+curl -s $BASE/logs/embed?lines=30             # tail the embed cron log
 curl -s $BASE/logs/fetch?lines=30             # tail the fetch cron log
 curl -s $BASE/jobs                            # list spawned jobs (this API process)
 
 curl -sX POST $BASE/fetch                     # kick a fetch run; returns Job
-curl -sX POST $BASE/classify                  # kick a classify run; returns Job
 curl -sX POST $BASE/embed                     # embed any un-embedded abstracts; returns Job
 curl -s $BASE/jobs/{id}                       # poll one job for exit_code
 
@@ -47,7 +46,7 @@ the shared cron log) or `/jobs/{id}` (per-process pid + exit code).
 A POST while a same-kind job is already running returns `409 Conflict`
 carrying the existing `Job` in `detail.job` -- safe to spam-trigger; the
 API is the dedup point so you cannot accidentally double up on a long
-classify run.
+fetch run.
 
 OpenAPI docs at `$BASE/docs` if a curl call is going sideways.
 
@@ -63,72 +62,58 @@ JSON body with three fields:
 
 - `q` (required) — natural-language query. Embedded server-side
   (model2vec potion-base-8M) and compared against every abstract.
-- `sql` (optional) — a DuckDB SELECT against the `papers` view. When
-  omitted, the default is the top-`limit` nearest neighbors.
-- `limit` (optional, default 10) — only applies to the default query;
+- `sql` (optional) — a SQLite SELECT against the `search` relation. When
+  omitted, the default is the top-`limit` nearest neighbors. Must not
+  begin with `WITH` (the server prepends its own `WITH search AS (...)`).
+- `limit` (optional, default 20) — only applies to the default query;
   custom SQL controls its own LIMIT.
 
 Response: `{"sql": ..., "count": N, "rows": [...]}`. Bad SQL returns
-`400` with the DuckDB error message — iterate on the SQL and re-POST.
+`400` with the SQLite error message — iterate on the SQL and re-POST.
 
-### The `papers` view
+### The `search` relation
 
 One row per paper, with `distance` (cosine distance to `q`, lower =
-more similar) precomputed:
+more similar) precomputed by sqlite-vec's `vec_distance_cosine`:
 
-| column           | type      | notes                                        |
-|------------------|-----------|----------------------------------------------|
-| arxiv_id         | VARCHAR   | e.g. `2401.12345`                            |
-| title            | VARCHAR   |                                              |
-| abstract         | VARCHAR   |                                              |
-| authors          | VARCHAR[] | list of names                                |
-| primary_category | VARCHAR   | e.g. `cs.CL`                                 |
-| categories       | VARCHAR[] | all categories                               |
-| announced_at     | VARCHAR   | RFC-2822: `Fri, 22 May 2026 00:00:00 -0400`  |
-| updated_at       | VARCHAR   | same format                                  |
-| html_url         | VARCHAR   |                                              |
-| distance         | DOUBLE    | cosine distance to `q`                       |
+| column           | type   | notes                                        |
+|------------------|--------|----------------------------------------------|
+| arxiv_id         | TEXT   | e.g. `2401.12345`                            |
+| title            | TEXT   |                                              |
+| primary_category | TEXT   | e.g. `cs.CL`                                 |
+| announced_at     | TEXT   | parsed ISO-8601 UTC: `2026-05-22T00:00:00+00:00` |
+| html_url         | TEXT   |                                              |
+| distance         | REAL   | cosine distance to `q`                       |
 
-`announced_at` is a *string*; parse it with
-`try_strptime(announced_at, '%a, %d %b %Y %H:%M:%S %z')` before
-comparing to timestamps. (Do not use a `GMT`-suffix format — the offset
-is numeric — and always `try_strptime`, never `strptime`, so unparseable
-rows become NULL instead of erroring.)
+`announced_at` is normalized to ISO-8601 UTC at index time, so a plain
+lexical string compare is a correct date filter (`WHERE announced_at >=
+'2026-06-01'`). No `strptime` needed. For fields not on the `search`
+relation (abstract, authors, full category list), query the `metadata`
+EAV table via `/sql`.
 
 ### Recipes
 
 Write the body to `/tmp/query.json`, then
 `curl -s --json @/tmp/query.json $BASE/search`.
 
-**Semantic question only** (default SQL, top 10):
+**Semantic question only** (default SQL, top 20):
 
 ```json
 {"q": "agents that learn user preferences from feedback"}
 ```
 
-**Restrict by date** (last 7 days):
+**Restrict by date** (on/after a cutoff — ISO lexical compare):
 
 ```json
 {"q": "agents that learn user preferences from feedback",
- "sql": "SELECT arxiv_id, title, announced_at, distance FROM papers WHERE try_strptime(announced_at, '%a, %d %b %Y %H:%M:%S %z') > now() - INTERVAL 7 DAY ORDER BY distance LIMIT 10"}
+ "sql": "SELECT arxiv_id, title, announced_at, distance FROM search WHERE announced_at >= '2026-06-01' ORDER BY distance LIMIT 10"}
 ```
 
-**Restrict by category** (primary, or any category):
+**Restrict by primary category**:
 
 ```json
 {"q": "retrieval augmented generation",
- "sql": "SELECT arxiv_id, title, primary_category, distance FROM papers WHERE primary_category = 'cs.CL' ORDER BY distance LIMIT 10"}
-```
-
-```sql
--- any-category variant: match against the full list
-WHERE list_contains(categories, 'cs.HC')
-```
-
-**Keyword + semantic** (belt and suspenders):
-
-```sql
-WHERE abstract ILIKE '%preference%' ORDER BY distance LIMIT 10
+ "sql": "SELECT arxiv_id, title, primary_category, distance FROM search WHERE primary_category = 'cs.CL' ORDER BY distance LIMIT 10"}
 ```
 
 **Distance threshold** instead of top-N (useful for "is there anything
@@ -141,20 +126,13 @@ WHERE distance < 0.55 ORDER BY distance LIMIT 50
 Rough calibration: < 0.5 strongly related, 0.5–0.7 loosely related,
 > 0.8 noise.
 
-**Aggregates** work too — any SELECT is fine:
+**Aggregates** work too — any SELECT over `search` is fine:
 
 ```sql
 -- where does this topic live? category histogram of the 100 NN
-SELECT primary_category, count(*) AS n
-FROM (SELECT * FROM papers ORDER BY distance LIMIT 100)
+SELECT primary_category, COUNT(*) AS n
+FROM (SELECT * FROM search ORDER BY distance LIMIT 100)
 GROUP BY 1 ORDER BY n DESC
-```
-
-**Author search**:
-
-```sql
-WHERE list_contains(authors, 'Exact Name')          -- exact
-WHERE len(list_filter(authors, a -> a ILIKE '%scott%')) > 0  -- fuzzy
 ```
 
 ### Executing without permission prompts
@@ -290,28 +268,26 @@ and gets an integration test there; the CLI only ever grows argument plumbing.
 src/fetcher/
   api.py            # SDK surface (orchestrator)
   cli.py            # typer wrapper
+  serve.py          # FastAPI HTTP wrapper
   commands/         # one subpackage / module per CLI command
-    fetch/          # daily ingest: sync metadata + render markdown
-      __init__.py   #   the composite (sync → render) lives here
-      sync.py       #   stage 1: arxiv RSS -> metadata.json per paper
-      render.py     #   stage 2: HTML/LaTeX/PDF -> paper.md per paper
-    classify/       # daily classify: abstract -> topic flags via LLM
+    fetch/          # daily ingest: sync metadata + embed abstracts
+      __init__.py   #   the composite (sync → embed) lives here
+      sync.py       #   stage 1: arxiv export API -> metadata.json per paper
+      pull.py       #   bespoke by-id metadata retrieval
+    embed.py        # abstract -> model2vec embedding (single-file command)
     status.py       # read-only counts (single-file command)
-    train_categories.py  # developer: compile labels/ -> prompts/ (cached)
   shared/           # cross-command utilities (config, paths, logsetup,
-                    # download, convert, dirsql_schema)
+                    # http, dirsql_schema)
 ```
 
-CLI surface mirrors the commands/ folder: `fetcher fetch`, `fetcher
-classify`, `fetcher status`, `fetcher train-categories`. The fetch stages
-(sync, render) are SDK-only (`api.sync_metadata`, `api.render_markdown`);
-they live as separate modules inside `commands/fetch/` so each has its
-own integration test file and can be called granularly.
+CLI surface mirrors the commands/ folder: `fetcher fetch`, `fetcher pull`,
+`fetcher embed`, `fetcher status`, `fetcher sql`, `fetcher serve`. The
+`sync` stage is SDK-only (`api.sync_metadata`); it lives as a separate
+module inside `commands/fetch/` so it has its own integration test file
+and can be called granularly.
 
 A command is a flat module while it fits in one file (`commands/status.py`,
-`commands/train_categories.py`). The moment it needs internal modules
-(multiple stages, a backend, a store, a prompt loader) it gets promoted
-to a subpackage (`commands/fetch/run.py` + siblings,
-`commands/classify/run.py` + siblings). A module belongs in `shared/`
-only if it's imported by more than one command or by `api.py` -- not a
-dumping ground.
+`commands/embed.py`). The moment it needs internal modules (multiple
+stages, a store) it gets promoted to a subpackage (`commands/fetch/` +
+siblings). A module belongs in `shared/` only if it's imported by more
+than one command or by `api.py` -- not a dumping ground.
