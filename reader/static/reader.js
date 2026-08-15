@@ -21,18 +21,8 @@ async function loadInfo() {
     const meta = await resp.json();
     if (!resp.ok) throw new Error(meta.error || resp.status);
     document.title = meta.title + " · arxiv reader";
-    $("paper-title").textContent = meta.title;
-    $("paper-title").title = meta.title;
-    $("info-authors").textContent = (meta.authors || []).join(", ");
-    $("info-cats").textContent =
-      `${arxivId} · ${(meta.categories || []).join(" ")} · ${(meta.published || "").slice(0, 10)}`;
-    $("info-abstract").textContent = meta.abstract;
-    $("abs-link").href = meta.abs_url;
-    return meta;
-  } catch (e) {
-    $("paper-title").textContent = arxivId;
-    $("info-abstract").textContent = "metadata unavailable: " + e.message;
-    return null;
+  } catch {
+    document.title = arxivId + " · arxiv reader";
   }
 }
 
