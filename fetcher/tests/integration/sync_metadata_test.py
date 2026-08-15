@@ -4,9 +4,16 @@ sync pulls from the arxiv export API in per-day slices (submittedDate
 windows), not RSS: each slice is an immutable query whose response can be
 cached ~forever, so a missed day is re-fetched by any later run instead of
 being lost when the RSS window rolls over.
+
+The mirror keeps every paper *submitted* inside the lookback window --
+whatever version its API id carries at sync time (a long lookback sees
+already-revised papers as v2+). What it drops are entries whose
+published (v1) date predates the window: old papers resurfacing in a
+slice via a revision or a late cross-list.
 """
 
 import json
+from datetime import date
 
 from fetcher import sync_metadata
 
@@ -26,11 +33,23 @@ def describe_sync_metadata():
     def it_drops_a_replacement_of_an_old_paper(data_dir, arxiv):
         added, _ = sync_metadata(data_dir)
 
-        # The response carries a v3 entry (arXiv:2012.09999v3, first
-        # announced in 2020). fetcher mirrors only first versions, so it
-        # never becomes a metadata folder.
+        # The response carries a v3 entry (arXiv:2012.09999v3) whose
+        # published (v1) date is 2020 -- outside the sync window. An old
+        # paper resurfacing in a slice never becomes a metadata folder.
         assert added == 4
         assert not (data_dir / "2012.09999").exists()
+
+    def it_keeps_a_revised_paper_submitted_in_the_window(data_dir, arxiv):
+        sync_metadata(data_dir)
+
+        # 2401.00004's API id carries v2, but its published (v1) date
+        # sits inside the window: a paper revised after submission. A
+        # long-lookback backfill sees a large share of papers this way;
+        # the mirror keeps them, pointing at the version the id names.
+        meta = json.loads((data_dir / "2401.00004" / "metadata.json").read_text())
+        assert meta["version"] == 2
+        assert meta["pdf_url"] == "https://arxiv.org/pdf/2401.00004v2"
+        assert meta["html_url"] == "https://arxiv.org/html/2401.00004v2"
 
     def it_drops_a_cross_list_whose_primary_is_untracked(data_dir, arxiv):
         sync_metadata(data_dir)
@@ -46,8 +65,11 @@ def describe_sync_metadata():
         meta = json.loads((data_dir / "2401.00001" / "metadata.json").read_text())
         # The API's <published> timestamp, rendered in the same RFC-2822
         # format the RSS era wrote, so the existing corpus and the papers
-        # view's strptime keep working unchanged.
-        assert meta["announced_at"] == "Mon, 01 Jan 2024 12:00:00 +0000"
+        # view's strptime keep working unchanged. The fake serves each
+        # slice with published dates on the queried day; dedupe keeps the
+        # first-seen record, and the walk starts at today.
+        expected = date.today().strftime("%a, %d %b %Y") + " 12:00:00 +0000"
+        assert meta["announced_at"] == expected
 
     def it_records_the_arxiv_html_url(data_dir, arxiv):
         sync_metadata(data_dir)

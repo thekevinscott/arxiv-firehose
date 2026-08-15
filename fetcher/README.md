@@ -116,8 +116,14 @@ fetcher train-categories --optimizer gepa --model phi4:14b
 
 `fetch` runs two stages in order:
 
-1. **sync** writes a `metadata.json` for every paper in the RSS feed of each
-   tracked category (RSS carries ~1 week of submissions).
+1. **sync** writes a `metadata.json` for every paper submitted in the
+   lookback window (`[ingest] backfill_days`) whose primary category is
+   tracked. It queries the export API in per-day `submittedDate` slices,
+   newest first; settled slices are cached ~forever, so a daily run
+   re-reads its whole window at the cost of a handful of real requests.
+   Papers already revised on arxiv are kept at the version the API
+   serves; papers *submitted* before the window are dropped even when a
+   revision resurfaces them in a slice.
 2. **render** walks every paper folder and produces a markdown rendering
    for *each* one, every run — there is no "already on disk, skip" shortcut.
    It re-fetches and rewrites the data-dir files unconditionally. Three
@@ -154,7 +160,7 @@ concurrency = 1         # arxiv source must stay at 1
 latex = true            # also pull the LaTeX source tarball
 
 [ingest]
-backfill_days = 0       # skip papers older than N days; 0 = all of RSS
+backfill_days = 90      # lookback window: sync walks this many days back
 ```
 
 ## HTTP API
@@ -223,7 +229,8 @@ arxiv repeat traffic, and losing it costs nothing but bandwidth.
 ## Prototype scope
 
 - Only the `arxiv` source is implemented.
-- No incremental re-fetch of updated versions (v2, v3); the first version seen
-  is the one kept.
+- No incremental re-fetch of updated versions: the version the API served
+  when a paper was first synced is the one kept, even if arxiv later
+  carries a newer one.
 - arxiv's rate limit is real: network requests are spaced 3s apart. Cache hits
   are exempt. Do not raise `concurrency`.

@@ -36,11 +36,11 @@
     <category term="cs.LG"/>
   </entry>
   <entry>
-    <id>http://arxiv.org/abs/2401.00004v1</id>
+    <id>http://arxiv.org/abs/2401.00004v2</id>
     <updated>2024-01-01T12:12:00Z</updated>
     <published>2024-01-01T12:12:00Z</published>
     <title>A Fourth Sample Paper With No Representation At All</title>
-    <summary>A fourth fixture paper with no arxiv HTML, no e-print source, and no PDF -- every conversion path 404s, so it is the one paper that ends up with no rendered body.</summary>
+    <summary>A fourth fixture paper with no arxiv HTML, no e-print source, and no PDF -- every conversion path 404s, so it is the one paper that ends up with no rendered body. Its id carries v2 while its published date sits inside the window: a paper revised after submission, which the mirror must keep (the backfill case).</summary>
     <author><name>Katherine Johnson</name></author>
     <arxiv:primary_category term="cs.LG"/>
     <category term="cs.LG"/>
@@ -50,7 +50,7 @@
     <updated>2024-01-01T12:15:00Z</updated>
     <published>2020-12-18T12:00:00Z</published>
     <title>An Old Paper Revised Years Later</title>
-    <summary>A revision of a paper first announced in 2020. The API id carries v3; fetcher mirrors only first versions, so this must be dropped.</summary>
+    <summary>A revision of a paper first announced in 2020. Its published (v1) date predates the sync window, so this must be dropped whatever version its id carries.</summary>
     <author><name>Margaret Hamilton</name></author>
     <arxiv:primary_category term="cs.LG"/>
     <category term="cs.LG"/>

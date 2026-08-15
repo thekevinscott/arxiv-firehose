@@ -80,14 +80,19 @@ def _primary_category(entry: feedparser.FeedParserDict, tags: list[str]) -> str:
 
 
 def _parse_entry(
-    entry: feedparser.FeedParserDict, tracked: set[str] | None
+    entry: feedparser.FeedParserDict,
+    tracked: set[str] | None,
+    since: date | None = None,
 ) -> PaperRecord | None:
     """Parse one Atom entry into a PaperRecord, or None to drop it.
 
-    *tracked* is the sync rulebook: with a category set, only v1 papers
-    whose primary category is tracked survive. ``tracked=None`` is the
+    *tracked* is the sync rulebook: with a category set, only papers whose
+    primary category is tracked and whose published (v1 submission) date
+    is on or after *since* survive -- whatever version the entry id
+    carries, since the API always serves the latest one and a long
+    lookback sees already-revised papers. ``tracked=None`` is the
     bespoke-pull mode -- the caller asked for this paper by id, so any
-    version and any category is accepted.
+    date and any category is accepted.
     """
     raw_id = entry.get("id", "") or entry.get("link", "")
     try:
@@ -96,11 +101,15 @@ def _parse_entry(
     except ValueError:
         return None
 
-    # The API id carries the latest version; anything past v1 is a revision
-    # of an old paper resurfacing in the window. Mirror first versions only.
     version = version_from_entry_id(raw_id)
-    if tracked is not None and version != 1:
-        return None
+
+    # An old paper can resurface in a day slice via a revision or a late
+    # cross-list; its <published> (v1 submission) date is what places it
+    # in or out of the window. A missing date errs toward keeping.
+    if tracked is not None and since is not None:
+        parsed = entry.get("published_parsed")
+        if isinstance(parsed, time.struct_time) and date(*parsed[:3]) < since:
+            return None
 
     tags = [t.get("term", "") for t in entry.get("tags", []) if t.get("term")]
     primary = _primary_category(entry, tags)
@@ -142,6 +151,7 @@ def collect_records(
     categories = tuple(config.categories.include)
     tracked = set(categories)
     days = [date.today() - timedelta(days=n) for n in range(config.ingest.backfill_days + 1)]
+    since = days[-1]
 
     records: dict[str, PaperRecord] = {}
     for day in days:
@@ -171,7 +181,7 @@ def collect_records(
                 day.isoformat(), len(feed.entries),
             )
         for entry in feed.entries:
-            rec = _parse_entry(entry, tracked)
+            rec = _parse_entry(entry, tracked, since=since)
             if rec is None:
                 continue
             if rec.arxiv_id in records:

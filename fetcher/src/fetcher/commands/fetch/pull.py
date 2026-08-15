@@ -1,6 +1,7 @@
 """pull: bespoke single-paper retrieval by arxiv id.
 
-The daily sync mirrors only new v1 papers in tracked categories; pull
+The daily sync mirrors papers submitted in its lookback window in
+tracked categories; pull
 mirrors whatever the caller asks for by id -- e.g. the citations of a
 paper worth tracing. Metadata comes from the export API's ``id_list=``
 query (the same Atom shape sync parses, with no version or category

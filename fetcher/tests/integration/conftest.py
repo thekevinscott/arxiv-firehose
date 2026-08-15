@@ -17,6 +17,7 @@ through context managers.
 """
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -65,9 +66,9 @@ def _resolve_fixture(url: str) -> Path | None:
         ident = url.split("id_list=", 1)[1].split("&", 1)[0].replace("/", "_")
         return FIXTURES / f"api_id_{ident}.xml"
     if "export.arxiv.org/api/query" in url:
-        # Every day-slice query gets the same Atom body; sync's dedupe
-        # collapses the repeats, mirroring how overlapping real slices
-        # re-serve already-known papers.
+        # Every day-slice query gets the same Atom body (with its sentinel
+        # dates rewritten to the queried day -- see fake_http_get); sync's
+        # dedupe collapses the repeats.
         return FIXTURES / "api_query.xml"
     if "/html/" in url:
         ident = url.rsplit("/html/", 1)[1].replace("/", "_")
@@ -114,6 +115,23 @@ def no_cachetta():
         yield
 
 
+# The date every templated entry in api_query.xml carries. The fake
+# rewrites it to the day of the submittedDate window being queried,
+# matching the real API: a day-slice only returns papers whose
+# <published> (v1 submission) falls on that day. The one entry with a
+# different date (2012.09999, published 2020-12-18) keeps it -- it plays
+# the out-of-window revision that sync must drop.
+DAY_SENTINEL = b"2024-01-01"
+
+
+def _queried_day(url: str) -> bytes | None:
+    """The YYYY-MM-DD day of a day-slice query URL (quoted submittedDate)."""
+    m = re.search(r"submittedDate%3A%5B(\d{4})(\d{2})(\d{2})", url)
+    if m is None:
+        return None
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}".encode()
+
+
 @pytest.fixture
 def arxiv():
     """Stub the network: ``shared.http.http_get`` answers from the
@@ -128,7 +146,12 @@ def arxiv():
         path = _resolve_fixture(url)
         if path is None or not path.exists():
             raise _raise_404(url)
-        return path.read_bytes()
+        body = path.read_bytes()
+        if path.name == "api_query.xml":
+            day = _queried_day(url)
+            if day is not None:
+                body = body.replace(DAY_SENTINEL, day)
+        return body
 
     with patch.object(http, "http_get", fake_http_get):
         yield SimpleNamespace(calls=calls)
