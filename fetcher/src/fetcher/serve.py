@@ -30,7 +30,6 @@ dev uses ``127.0.0.1``.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import threading
@@ -43,47 +42,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from . import api
-from .commands import embed as embed_mod
 from .shared.config import DEFAULT_DATA_DIR
 
-JobKind = Literal["fetch", "classify", "embed", "pull", "render"]
-
-# Default row cap when the client omits ``limit`` and doesn't write a
-# custom SQL. The cap only matters for the built-in ORDER BY distance
-# case; a user-supplied ``sql`` runs verbatim (with its own LIMIT if
-# any). Tailnet-only, no auth -- trusted caller.
-DEFAULT_SEARCH_LIMIT = 20
-
-
-def _build_search_cte(query_vec: list[float]) -> str:
-    """The ``WITH search AS (...)`` prefix the client SQL selects from.
-
-    Reconstructs a wide, per-request relation over the dirsql tables:
-    ``papers`` (arxiv_id, primary_category, ISO announced_at) LEFT JOINed
-    to the ``metadata`` EAV (pivoted for title/html_url) and JOINed to
-    ``embeddings`` for the vector. ``distance`` is sqlite-vec's
-    ``vec_distance_cosine`` against the query vector.
-
-    The vector is interpolated as a JSON array literal -- it's a list of
-    server-produced floats (never request text), so there's no injection
-    surface (mirrors the pattern in dirsql's search-by-meaning howto).
-    """
-    needle = json.dumps([round(float(x), 6) for x in query_vec])
-    return f"""
-        WITH search AS (
-            SELECT
-                p.arxiv_id AS arxiv_id,
-                MAX(CASE WHEN m.key = 'title' THEN m.value END) AS title,
-                p.primary_category AS primary_category,
-                p.announced_at AS announced_at,
-                MAX(CASE WHEN m.key = 'html_url' THEN m.value END) AS html_url,
-                vec_distance_cosine(e.embedding, '{needle}') AS distance
-            FROM papers p
-            JOIN embeddings e ON e.paper_id = p.arxiv_id
-            LEFT JOIN metadata m ON m.paper_id = p.arxiv_id
-            GROUP BY p.arxiv_id
-        )
-    """
+JobKind = Literal["fetch", "classify", "pull", "render"]
 
 # Per-job log file naming. We *also* write to the shared cron log so a
 # single ``tail -f .../classify-cron.log`` shows every run regardless of
@@ -218,62 +179,17 @@ class PullRequest(BaseModel):
     ids: list[str] = Field(min_length=1)
 
 
-class SearchRequest(BaseModel):
-    """Semantic search request body.
-
-    - ``q``: the natural-language query. Embedded server-side into a
-      256-dim vector; the server wraps the query in a ``WITH search AS
-      (...)`` CTE that carries a pre-computed ``distance`` column
-      (sqlite-vec ``vec_distance_cosine``) plus paper metadata.
-    - ``sql``: optional read-only SQLite SELECT run verbatim against the
-      ``search`` relation. Omitted -> ``SELECT arxiv_id, title, distance
-      FROM search ORDER BY distance LIMIT :limit``. Arbitrary SELECT is
-      allowed (WHERE on category / ISO announced_at, aggregates, etc.);
-      /search is tailnet-only so we don't sandbox the SQL. Must be a
-      single trailing SELECT -- a client-supplied leading ``WITH`` would
-      collide with the server's ``WITH search`` prefix.
-    - ``limit``: cap for the default SQL only. Ignored when ``sql`` is
-      set (put your own LIMIT in the SQL).
-
-    ``search`` columns: ``arxiv_id``, ``title``, ``primary_category``,
-    ``announced_at`` (parsed ISO-8601 UTC), ``html_url``, ``distance``.
-    """
-
-    q: str
-    sql: str | None = None
-    limit: int = DEFAULT_SEARCH_LIMIT
-
-
 class SqlRequest(BaseModel):
     """Read-only SQL against the dirsql schema.
 
     ``sql`` runs verbatim against the tables defined in
     ``shared.dirsql_schema`` (``papers``, ``metadata``,
     ``papers_categories``, ``categories``, ``markdown``, ``no_markdown``).
-    dirsql's authorizer rejects any non-read statement, so this is the
-    metadata analogue of /search's DuckDB-over-embeddings surface --
-    tailnet-only, no sandbox beyond read-only.
+    dirsql's authorizer rejects any non-read statement -- tailnet-only,
+    no sandbox beyond read-only.
     """
 
     sql: str
-
-
-# Process-lifetime embedding model cache. The static model is ~30 MB
-# and loads in a few seconds; we amortize it across requests.
-_MODEL = None
-_MODEL_LOCK = threading.Lock()
-
-
-def _get_model():
-    """Return the module-level model2vec instance, loading it once."""
-    global _MODEL
-    if _MODEL is None:
-        with _MODEL_LOCK:
-            if _MODEL is None:
-                from model2vec import StaticModel
-
-                _MODEL = StaticModel.from_pretrained(embed_mod.MODEL_NAME)
-    return _MODEL
 
 
 def _default_log_dir(data_dir: Path) -> Path:
@@ -378,17 +294,6 @@ def make_app(
     def post_classify() -> Job:
         return _start("classify")
 
-    @app.post("/embed", status_code=202)
-    def post_embed() -> Job:
-        """Trigger a standalone embed run.
-
-        Useful for the first backfill or after adding papers out-of-band,
-        when waiting for the next fetch cycle isn't worth it. Fetch also
-        runs embed as its last stage, so this is a shortcut, not a
-        prerequisite.
-        """
-        return _start("embed")
-
     @app.post("/pull", status_code=202)
     def post_pull(req: PullRequest) -> Job:
         """Mirror specific papers by arxiv id as a background job.
@@ -426,59 +331,15 @@ def make_app(
         log_path = logs / CRON_LOG_NAME.format(kind=kind)
         return {"path": str(log_path), "lines": _tail(log_path, lines)}
 
-    @app.post("/search")
-    def post_search(req: SearchRequest) -> dict[str, object]:
-        """Semantic search over paper abstracts, with arbitrary SQL sub-select.
-
-        The server embeds ``req.q`` once, prepends a ``WITH search AS
-        (...)`` CTE that carries a pre-computed sqlite-vec ``distance``
-        column against that vector, then runs either the default tail
-        (``SELECT ... FROM search ORDER BY distance LIMIT :limit``) or the
-        client-supplied ``req.sql`` after the CTE. One dirsql/SQLite
-        statement, read-only -- the same surface as /sql.
-        """
-        from .shared.dirsql_schema import query as dirsql_query
-
-        if not embed_mod.embeddings_path(data_dir).exists():
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "embeddings.json not built yet -- run `fetcher embed` "
-                    "(or `fetcher fetch`) or wait for the next cron cycle"
-                ),
-            )
-
-        query_vec = [float(x) for x in _get_model().encode([req.q])[0]]
-        cte = _build_search_cte(query_vec)
-
-        if req.sql:
-            tail = req.sql
-        else:
-            tail = (
-                "SELECT arxiv_id, title, distance "
-                f"FROM search ORDER BY distance LIMIT {int(req.limit)}"
-            )
-        sql = f"{cte}\n{tail}"
-
-        try:
-            rows = dirsql_query(sql, data_dir.parent)
-        except Exception as exc:  # noqa: BLE001 -- client-authored SQL:
-            # surface dirsql/SQLite's own message (parse error, unknown
-            # column, read-only rejection) as a 400, not an opaque 500.
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"sql": sql, "count": len(rows), "rows": rows}
-
     @app.post("/sql")
     def post_sql(req: SqlRequest) -> dict[str, object]:
         """Run one read-only SQL statement against the dirsql schema.
 
-        The general-purpose counterpart to /search: both ride the same
-        dirsql/SQLite surface, but /search wraps the query in a vector
-        CTE while /sql runs the raw statement against every table
-        (papers, metadata EAV, embeddings, presence and classification
-        tables). dirsql scans ``data_dir.parent`` and enforces read-only,
-        so a write or a typo comes back as a 400 carrying the engine's
-        own message rather than an opaque 500.
+        Runs the raw statement against every table (papers, metadata
+        EAV, presence and classification tables). dirsql scans
+        ``data_dir.parent`` and enforces read-only, so a write or a typo
+        comes back as a 400 carrying the engine's own message rather
+        than an opaque 500.
         """
         from .shared.dirsql_schema import query
 

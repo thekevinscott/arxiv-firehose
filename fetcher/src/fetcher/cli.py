@@ -46,7 +46,7 @@ def fetch(
     limit: Optional[int] = Limit,
     dry_run: bool = DryRun,
 ) -> None:
-    """Run the daily ingest cycle: sync metadata, then embed abstracts."""
+    """Run the daily ingest cycle: sync metadata for tracked categories."""
     result = api.fetch(
         data_dir, config,
         verbose=verbose, limit=limit, dry_run=dry_run,
@@ -121,32 +121,6 @@ def classify(
     api.classify(
         data_dir, config,
         verbose=verbose, limit=limit, dry_run=dry_run,
-    )
-
-
-@app.command("embed")
-def embed(
-    data_dir: Path = DataDir,
-    config: Optional[Path] = ConfigFile,
-    verbose: bool = Verbose,
-    limit: Optional[int] = Limit,
-    dry_run: bool = DryRun,
-) -> None:
-    """Populate embeddings.json for every paper missing one.
-
-    Independent of ``render`` -- reads only ``metadata.json.abstract``.
-    Runs to convergence: papers already in the file are skipped.
-    Also runs as a stage inside ``fetch``; this entry point is for a
-    standalone backfill / manual retrigger.
-    """
-    counts = api.embed(
-        data_dir, config,
-        verbose=verbose, limit=limit, dry_run=dry_run,
-    )
-    typer.echo(
-        f"embedded={counts['embedded']} "
-        f"skipped={counts['skipped']} "
-        f"total={counts['total']}"
     )
 
 

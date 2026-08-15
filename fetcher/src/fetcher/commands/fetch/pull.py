@@ -7,7 +7,7 @@ paper worth tracing. Metadata comes from the export API's ``id_list=``
 query (the same Atom shape sync parses, with no version or category
 filter).
 
-Pull is metadata-only, like the daily ingest: search/classify/embed
+Pull is metadata-only, like the daily ingest: search/classify
 need abstracts, not paper bodies. Markdown arrives only when render is
 explicitly invoked (``fetcher render`` / ``POST /render``).
 

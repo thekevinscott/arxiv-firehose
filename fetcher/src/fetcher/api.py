@@ -4,8 +4,8 @@ Every command is a function here. The CLI (``cli.py``) is a thin typer
 wrapper over these. Each function handles config loading and logger setup
 itself, so a caller only supplies the data directory and options.
 
-Two cron-level commands -- ``fetch`` (ingest: sync metadata, then embed
-abstracts) and ``classify`` (label each paper against a taxonomy) -- plus
+Two cron-level commands -- ``fetch`` (ingest: sync metadata) and
+``classify`` (label each paper against a taxonomy) -- plus
 ``status`` for read-only counts. Rendering markdown is explicit-only
 (``render_markdown`` / ``fetcher render`` / ``POST /render``); it is the
 heavy path and no auto-executing script triggers it.
@@ -23,7 +23,6 @@ from pathlib import Path
 
 from . import serve as serve_mod
 from .commands import classify as classify_mod
-from .commands import embed as embed_mod
 from .commands import fetch as fetch_mod
 from .commands import status as status_mod
 from .commands import train_categories as train_categories_mod
@@ -47,7 +46,6 @@ __all__ = [
     "DEFAULT_SERVE_HOST",
     "DEFAULT_SERVE_PORT",
     "classify",
-    "embed",
     "fetch",
     "pull",
     "render_markdown",
@@ -107,9 +105,9 @@ def fetch(
     limit: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
-    """Run the daily ingest cycle: sync-metadata, then embed abstracts.
+    """Run the daily ingest cycle: sync-metadata.
 
-    Returns ``{"added", "updated", "embed", "status"}``. Each non-dry run
+    Returns ``{"added", "updated", "status"}``. Each non-dry run
     appends a record to ``data_dir/runs.jsonl`` -- a durable history for
     investigating what a given run did.
 
@@ -223,28 +221,6 @@ def train_categories(
     )
 
 
-def embed(
-    data_dir: Path = DEFAULT_DATA_DIR,
-    config_file: Path | None = None,
-    verbose: bool = False,
-    limit: int | None = None,
-    dry_run: bool = False,
-) -> dict[str, int]:
-    """Embed every paper missing from ``embeddings.json``.
-
-    A stage of ``fetch`` -- callable on its own for a manual backfill
-    or a targeted rerun (e.g. after a metadata correction). Idempotent:
-    a paper already in the file is skipped, so a re-run is a no-op
-    once everything is embedded.
-    """
-    log = get_logger(data_dir, "embed", verbose)
-    # config is unused today (model name is a constant) but kept in the
-    # signature to match the other SDK stage functions; a future toggle
-    # for model choice would land in [embed] without breaking callers.
-    _ = load_config(data_dir, config_file)
-    return embed_mod.run(data_dir, log, dry_run=dry_run, limit=limit)
-
-
 def status(
     data_dir: Path = DEFAULT_DATA_DIR,
     config_file: Path | None = None,
@@ -270,8 +246,7 @@ def sql(
     any non-read statement, so this is read-only by construction.
 
     Returns the result rows as dicts. The programmatic twin of the
-    ``POST /sql`` endpoint and the metadata counterpart to /search
-    (which owns the DuckDB-over-embeddings surface).
+    ``POST /sql`` endpoint.
     """
     return _dirsql_query(statement, data_dir.parent)
 

@@ -1,7 +1,7 @@
 """dirsql schema + factory for the arxiv-firehose data dir.
 
 fetcher uses dirsql **in-process** through this Python factory: the
-per-table ``extract`` callbacks parse the JSON inside
+per-table ``on_file`` callbacks parse the JSON inside
 ``metadata.json`` / ``classifications/*.json`` and turn it into columns.
 The equivalent ``.dirsql.toml`` ``on-file`` hooks would shell out once
 per file; the in-process path is a plain function call, so we keep it.
@@ -54,12 +54,6 @@ from dirsql import DirSQL, Table
 
 DEFAULT_ROOT = "/mnt/bertha/data/arxiv-firehose"
 
-# sqlite-vec supplies vec_distance_cosine() for /search. Loaded onto every
-# dirsql connection (harmless for the metadata-only /sql path). The pip
-# package's importable name is ``sqlite_vec``; its loadable's init symbol
-# is ``sqlite3_vec_init`` (doesn't match the filename-derived default).
-_EXTENSIONS = [{"path": "sqlite_vec", "entrypoint": "sqlite3_vec_init"}]
-
 
 def _arxiv_id_to_iso(arxiv_id: str) -> str | None:
     """Parse a post-2007 arxiv id (``YYMM.NNNNN``) into a month-first ISO
@@ -109,20 +103,6 @@ def _extract_paper(path: str) -> list[dict]:
         ),
         "primary_category": meta.get("primary_category"),
     }]
-
-
-def _extract_embeddings(path: str) -> list[dict]:
-    """One row per paper in ``embeddings.json`` (a single JSON array).
-
-    The embedding is stored as a JSON-array TEXT string -- sqlite-vec's
-    ``vec_distance_cosine`` reads JSON vectors directly, no binary
-    encoding needed. Rows missing an id or vector are dropped."""
-    rows = _read_json(path)
-    return [
-        {"paper_id": r["arxiv_id"], "embedding": json.dumps(r["embedding"])}
-        for r in rows
-        if r.get("arxiv_id") and r.get("embedding") is not None
-    ]
 
 
 # metadata.json keys never mirrored into the EAV ``metadata`` table:
@@ -213,9 +193,8 @@ _TABLE_SPECS = (
         "data/*/metadata.json",
         _extract_metadata_kv,
     ),
-    # No composite PRIMARY KEY -- dirsql appends synthetic columns after
-    # the DDL, and SQLite forbids columns after a table-level constraint.
-    # Uniqueness comes from the one-file-per-(paper, category) layout.
+    # No composite PRIMARY KEY -- uniqueness comes from the
+    # one-file-per-(paper, category) layout.
     (
         """CREATE TABLE papers_categories (
             paper_id    TEXT NOT NULL,
@@ -246,23 +225,11 @@ _TABLE_SPECS = (
         "data/*/.no_markdown",
         _extract_marker,
     ),
-    # Vector search surface: one row per paper, embedding as JSON-array
-    # TEXT for sqlite-vec. Populated from the single embeddings.json at
-    # the data-dir root (see commands/embed.py).
-    (
-        """CREATE TABLE embeddings (
-            paper_id  TEXT PRIMARY KEY,
-            embedding TEXT NOT NULL
-        )""",
-        "data/embeddings.json",
-        _extract_embeddings,
-    ),
 )
 
-# Bump on any change to an ``extract`` callback's output shape that the
+# Bump on any change to an ``on_file`` callback's output shape that the
 # DDL alone doesn't capture (the fingerprint already covers ddl + glob).
-# v2: papers.announced_at switched from month-from-id to parsed ISO, and
-# the embeddings table was added.
+# v2: papers.announced_at switched from month-from-id to parsed ISO.
 _SCHEMA_VERSION = 2
 
 
@@ -315,10 +282,9 @@ def build_app(
     return DirSQL(
         str(root),
         tables=[
-            Table(ddl=ddl, glob=glob, extract=extract)
-            for ddl, glob, extract in _TABLE_SPECS
+            Table(ddl=ddl, glob=glob, on_file=on_file)
+            for ddl, glob, on_file in _TABLE_SPECS
         ],
-        extensions=_EXTENSIONS,
         persist=persist,
     )
 
@@ -328,7 +294,7 @@ def query(
 ) -> list[dict]:
     """Run *sql* against a fresh in-process dirsql app and return the rows.
 
-    The synchronous bridge every sync caller (status, embed, the CLI, the
+    The synchronous bridge every sync caller (status, the CLI, the
     HTTP endpoint) uses: it builds the app, waits for the initial scan,
     runs one read-only query, and tears the app down -- all inside a
     private event loop via ``asyncio.run``. dirsql's authorizer rejects

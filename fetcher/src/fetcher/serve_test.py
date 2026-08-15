@@ -9,17 +9,14 @@ replaced with a recording fake so a test never starts a real
 from __future__ import annotations
 
 import json
-import logging
 import time
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from fetcher import serve
-from fetcher.commands import embed as embed_mod
 
 
 class FakePopen:
@@ -106,17 +103,6 @@ def describe_post_classify():
         assert body["kind"] == "classify"
         assert body["log_path"].endswith("classify-cron.log")
         assert calls[0][0] == "classify"
-
-
-def describe_post_embed():
-    def it_spawns_and_returns_a_job(client: TestClient, spawns):
-        _, calls, _ = spawns
-        r = client.post("/embed")
-        assert r.status_code == 202
-        body = r.json()
-        assert body["kind"] == "embed"
-        assert body["log_path"].endswith("embed-cron.log")
-        assert calls[0][0] == "embed"
 
 
 def describe_post_render():
@@ -230,43 +216,13 @@ def describe_get_log():
         assert r.json()["lines"] == []
 
 
-class _SearchFakeModel:
-    """Fake ``StaticModel`` for /search tests: one axis per keyword.
-
-    Encodes text into a fixed vector by counting occurrences of a small
-    keyword set on distinct axes. That lets a test assert semantic
-    ordering (a "diffusion" query is nearest a "diffusion" abstract)
-    without loading a real embedding model.
-    """
-
-    KEYWORDS = ("diffusion", "compiler", "protein", "quantum")
-
-    def encode(self, texts: list[str]) -> np.ndarray:
-        arr = np.zeros((len(texts), embed_mod.EMBED_DIM), dtype=np.float32)
-        for i, t in enumerate(texts):
-            lower = t.lower()
-            for j, kw in enumerate(self.KEYWORDS):
-                if kw in lower:
-                    arr[i, j] = 1.0
-            # Zero vectors would make cosine distance NaN; nudge unrelated
-            # texts onto a dedicated axis so distance stays defined.
-            if not arr[i, : len(self.KEYWORDS)].any():
-                arr[i, len(self.KEYWORDS)] = 1.0
-        return arr
-
-
 @pytest.fixture
-def search_data_dir(tmp_path: Path) -> Path:
-    """A data dir seeded with three papers + their embeddings.json.
-
-    Uses the deterministic keyword-axis fake so /search tests can assert
-    exact ordering. Real model2vec is never loaded in these tests.
-    """
+def sql_data_dir(tmp_path: Path) -> Path:
+    """A data dir seeded with three papers for /sql tests."""
     d = tmp_path / "data"
     d.mkdir()
     # announced_at is stored in the corpus's RFC-2822 shape; the dirsql
-    # extract normalizes it to UTC ISO at index time, so distinct dates
-    # let the announced_at date-filter test assert a real slice.
+    # on_file callback normalizes it to UTC ISO at index time.
     papers = [
         ("2401.00001", "Diffusion", "cs.LG",
          "A paper about diffusion models.", "Mon, 01 Jan 2024 00:00:00 +0000"),
@@ -290,39 +246,15 @@ def search_data_dir(tmp_path: Path) -> Path:
             "updated_at": announced,
             "html_url": f"https://arxiv.org/html/{aid}v1",
         }))
-    embed_mod.run(
-        d, logging.getLogger("test.embed"), model=_SearchFakeModel()
-    )
     return d
 
 
 @pytest.fixture
-def search_client(search_data_dir: Path, spawns, log_dir: Path):
-    """FastAPI test client wired to the seeded data dir + fake model.
-
-    The module-level ``serve._MODEL`` is patched inside a with-block so
-    a test's fake never leaks into subsequent tests.
-    """
+def sql_client(sql_data_dir: Path, spawns, log_dir: Path):
+    """Client wired to the seeded data dir for /sql tests."""
     spawn, _, _ = spawns
     app = serve.make_app(
-        data_dir=search_data_dir, spawn=spawn, log_dir=log_dir
-    )
-    with patch.object(serve, "_MODEL", _SearchFakeModel()):
-        with TestClient(app) as c:
-            yield c
-
-
-@pytest.fixture
-def sql_client(search_data_dir: Path, spawns, log_dir: Path):
-    """Client wired to the seeded data dir for /sql tests.
-
-    Reuses ``search_data_dir`` (three papers on disk) but needs no
-    embedding model: /sql reads the dirsql sqlite schema, not the
-    embeddings.
-    """
-    spawn, _, _ = spawns
-    app = serve.make_app(
-        data_dir=search_data_dir, spawn=spawn, log_dir=log_dir
+        data_dir=sql_data_dir, spawn=spawn, log_dir=log_dir
     )
     with TestClient(app) as c:
         yield c
@@ -360,70 +292,16 @@ def describe_post_sql():
         )
         assert r.status_code == 400
 
-
-def describe_post_search():
-    def it_returns_503_when_embeddings_file_is_missing(
-        client: TestClient
-    ):
-        # The default ``client`` fixture points at a nonexistent data dir;
-        # /search must refuse with 503 rather than crash.
-        r = client.post("/search", json={"q": "anything"})
-        assert r.status_code == 503
-        assert "embeddings.json" in r.json()["detail"]
-
-    def it_ranks_papers_by_semantic_distance_with_default_sql(
-        search_client: TestClient
-    ):
-        r = search_client.post(
-            "/search", json={"q": "diffusion models", "limit": 3}
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body["count"] == 3
-        # The diffusion paper is nearest; the others follow.
-        assert body["rows"][0]["arxiv_id"] == "2401.00001"
-        assert body["rows"][0]["distance"] == pytest.approx(0.0, abs=1e-6)
-        # Row shape: arxiv_id, title, distance.
-        assert set(body["rows"][0]) == {"arxiv_id", "title", "distance"}
-
-    def it_honors_limit_on_default_sql(search_client: TestClient):
-        r = search_client.post(
-            "/search", json={"q": "diffusion", "limit": 1}
-        )
-        assert r.status_code == 200
-        assert r.json()["count"] == 1
-
-    def it_runs_custom_sql_with_where_and_orderby(
-        search_client: TestClient
-    ):
-        # Filter by primary_category via the search relation. Proves the
-        # metadata JOIN carries through and the client SQL runs verbatim.
-        r = search_client.post("/search", json={
-            "q": "biology",
-            "sql": (
-                "SELECT arxiv_id, primary_category, distance "
-                "FROM search "
-                "WHERE primary_category LIKE 'q-bio%' "
-                "ORDER BY distance"
-            ),
-        })
-        assert r.status_code == 200
-        body = r.json()
-        assert body["count"] == 1
-        assert body["rows"][0]["arxiv_id"] == "2401.00003"
-        assert body["rows"][0]["primary_category"] == "q-bio.BM"
-
     def it_filters_by_the_normalized_announced_at_iso(
-        search_client: TestClient
+        sql_client: TestClient
     ):
         # announced_at is normalized to UTC ISO at index time, so a plain
         # lexical string compare is a correct date filter (the RFC-2822
         # form sorted lexically and silently leaked out-of-window rows).
         # Only the Sep paper is on/after the June cutoff.
-        r = search_client.post("/search", json={
-            "q": "anything",
+        r = sql_client.post("/sql", json={
             "sql": (
-                "SELECT arxiv_id, announced_at FROM search "
+                "SELECT arxiv_id, announced_at FROM papers "
                 "WHERE announced_at >= '2024-06-01' "
                 "ORDER BY announced_at"
             ),
@@ -431,33 +309,6 @@ def describe_post_search():
         assert r.status_code == 200
         body = r.json()
         assert [row["arxiv_id"] for row in body["rows"]] == ["2401.00003"]
-
-    def it_supports_aggregate_sql(search_client: TestClient):
-        r = search_client.post("/search", json={
-            "q": "anything",
-            "sql": "SELECT COUNT(*) AS n FROM search",
-        })
-        assert r.status_code == 200
-        assert r.json()["rows"][0]["n"] == 3
-
-    def it_echoes_the_sql_that_ran(search_client: TestClient):
-        # Handy for debugging clients; the response body carries the
-        # exact statement that ran, whether default or custom.
-        r = search_client.post("/search", json={"q": "x", "limit": 5})
-        assert r.status_code == 200
-        assert "ORDER BY distance" in r.json()["sql"]
-
-    def it_returns_400_with_the_engine_message_for_bad_sql(
-        search_client: TestClient
-    ):
-        # Client SQL is arbitrary; a typo must come back as a 400 with
-        # SQLite's own message, not an opaque 500.
-        r = search_client.post("/search", json={
-            "q": "x",
-            "sql": "SELECT nonexistent_column FROM search",
-        })
-        assert r.status_code == 400
-        assert "nonexistent_column" in r.json()["detail"]
 
 
 def describe_JobRegistry():

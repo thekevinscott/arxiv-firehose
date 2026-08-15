@@ -16,17 +16,6 @@ from fetcher.cli import app
 runner = CliRunner()
 
 
-def describe_cli_embed():
-    def it_runs_embed_dry_run_and_prints_counts(tmp_path: Path):
-        # Empty data dir: nothing to embed, dry-run writes nothing.
-        result = runner.invoke(
-            app, ["embed", "--data-dir", str(tmp_path), "--dry-run"]
-        )
-        assert result.exit_code == 0, result.output
-        assert "embedded=0" in result.output
-        assert "total=0" in result.output
-
-
 def describe_cli_render():
     def it_runs_render_dry_run_and_prints_counts(tmp_path: Path):
         # Empty data dir: nothing to render, dry-run writes nothing.

@@ -5,7 +5,7 @@ citations of a paper worth tracing), it fetches each paper's metadata via
 an ``id_list=`` export-API query. Unlike sync, it applies no category or
 version filter -- whatever the user asked for by id is mirrored.
 
-Pull is metadata-only, like the daily ingest: search/classify/embed need
+Pull is metadata-only, like the daily ingest: search/classify need
 abstracts, not paper bodies. Markdown for pulled papers arrives when
 render is explicitly invoked (``fetcher render`` / ``POST /render``).
 
@@ -71,7 +71,7 @@ def describe_pull():
     ):
         # A pulled paper is a first-class citizen of the data dir: its
         # folder carries metadata.json, so iter_paper_dirs (and therefore
-        # render, status, embed) all see it.
+        # render, status) all see it.
         from fetcher.shared.paths import iter_paper_dirs
 
         pull(["2401.00001"], data_dir)
