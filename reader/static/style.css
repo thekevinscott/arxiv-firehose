@@ -188,7 +188,31 @@ canvas.pdf-page {
   border-radius: 8px;
   padding: 6px 10px;
 }
-.msg.assistant { white-space: pre-wrap; padding: 0 2px; }
+.msg.assistant { padding: 0 2px; font-size: 14px; }
+.msg.assistant > :first-child { margin-top: 0; }
+.msg.assistant > :last-child { margin-bottom: 0; }
+.msg.assistant p, .msg.assistant ul, .msg.assistant ol { margin: 6px 0; white-space: normal; }
+.msg.assistant li { margin: 2px 0; }
+.msg.assistant h1, .msg.assistant h2, .msg.assistant h3, .msg.assistant h4 {
+  font-size: 14px;
+  margin: 10px 0 4px;
+}
+.msg.assistant pre {
+  background: #f0eeea;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.msg.assistant code { background: #f0eeea; border-radius: 3px; padding: 1px 4px; font-size: 12.5px; }
+.msg.assistant pre code { background: none; padding: 0; }
+.msg.assistant table { border-collapse: collapse; font-size: 13px; }
+.msg.assistant th, .msg.assistant td { border: 1px solid var(--line); padding: 3px 8px; }
+.msg.assistant blockquote {
+  max-height: none;
+  overflow: visible;
+}
 .msg blockquote {
   margin: 4px 0;
   padding: 4px 8px;

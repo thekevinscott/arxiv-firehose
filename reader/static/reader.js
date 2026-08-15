@@ -1,7 +1,15 @@
 "use strict";
 
 import * as pdfjs from "/vendor/pdf.min.mjs";
+import { marked } from "/vendor/marked.esm.js";
+import DOMPurify from "/vendor/purify.es.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.mjs";
+
+// Sanitized: the reply can echo content that originated in an arbitrary
+// paper's HTML, so it never reaches innerHTML unscrubbed.
+function renderMarkdown(el, text) {
+  el.innerHTML = DOMPurify.sanitize(marked.parse(text));
+}
 
 const $ = (id) => document.getElementById(id);
 const arxivId = decodeURIComponent(location.pathname.replace(/^\/paper\//, ""));
@@ -275,7 +283,7 @@ function renderTurn(turn) {
     p.textContent = turn.text;
     el.appendChild(p);
   } else {
-    el.textContent = turn.text;
+    renderMarkdown(el, turn.text);
   }
   return el;
 }
@@ -340,6 +348,7 @@ async function sendChat(message) {
   renderTurn(userTurn);
 
   const botEl = addMessage("assistant");
+  let botText = "";
   scrollLog();
   $("chat-status").textContent = "thinking…";
   $("chat-send").disabled = true;
@@ -371,17 +380,20 @@ async function sendChat(message) {
         const event = JSON.parse(line);
         if (event.type === "session") sessionId = event.session_id;
         else if (event.type === "delta") {
-          botEl.textContent += event.text;
+          botText += event.text;
+          renderMarkdown(botEl, botText);
           scrollLog();
         } else if (event.type === "error") {
-          botEl.textContent += "\n[error] " + event.message;
+          botText += "\n\n`[error] " + event.message + "`";
+          renderMarkdown(botEl, botText);
         }
       }
     }
   } catch (e) {
-    botEl.textContent += "\n[error] " + e;
+    botText += "\n\n`[error] " + e + "`";
+    renderMarkdown(botEl, botText);
   }
-  transcript.push({ role: "assistant", text: botEl.textContent });
+  transcript.push({ role: "assistant", text: botText });
   saveState();
   $("chat-status").textContent = "";
   $("chat-send").disabled = false;
