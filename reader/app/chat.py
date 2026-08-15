@@ -146,7 +146,7 @@ async def run(payload, meta, emit):
         include_partial_messages=True,
     )
 
-    streamed_any = False
+    final_parts = []
     async for msg in query(
         prompt=_input(message, payload.get("context"), seed, style), options=options
     ):
@@ -159,13 +159,16 @@ async def run(payload, meta, emit):
             if event.get("type") == "content_block_delta":
                 delta = event.get("delta") or {}
                 if delta.get("type") == "text_delta" and delta.get("text"):
-                    streamed_any = True
                     emit({"type": "delta", "text": delta["text"]})
-        elif isinstance(msg, AssistantMessage) and not streamed_any:
+        elif isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock) and block.text:
-                    emit({"type": "delta", "text": block.text})
+                    final_parts.append(block.text)
         elif isinstance(msg, ResultMessage):
             if msg.session_id:
                 emit({"type": "session", "session_id": msg.session_id})
+    if final_parts:
+        # Authoritative copy: the client replaces its delta-accumulated
+        # buffer, healing any deltas lost in transit (seen once on iPad).
+        emit({"type": "final", "text": "".join(final_parts)})
     emit({"type": "done"})

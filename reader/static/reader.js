@@ -396,6 +396,12 @@ async function sendChat(message) {
           botText += event.text;
           renderMarkdown(botEl, botText);
           scrollLog();
+        } else if (event.type === "final") {
+          // Server's authoritative full text; replaces the streamed buffer
+          // in case any delta was lost in transit.
+          botText = event.text;
+          renderMarkdown(botEl, botText);
+          scrollLog();
         } else if (event.type === "error") {
           botText += "\n\n`[error] " + event.message + "`";
           renderMarkdown(botEl, botText);
