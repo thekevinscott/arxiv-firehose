@@ -234,6 +234,31 @@ canvas.pdf-page {
 }
 .msg-img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
 
+#persona {
+  flex: none;
+  margin: 0 12px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+}
+#persona summary {
+  cursor: pointer;
+  padding: 5px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+#persona[open] summary { border-bottom: 1px solid var(--line); }
+#persona-body {
+  padding: 4px 10px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+#persona-body p, #persona-body ul, #persona-body ol { margin: 6px 0; }
+
 #context-chips {
   display: flex;
   flex-wrap: wrap;

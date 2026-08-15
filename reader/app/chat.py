@@ -19,7 +19,7 @@ from claude_agent_sdk import (
     query,
 )
 
-from . import arxiv
+from . import arxiv, persona
 
 _OPTION_FIELDS = {f.name for f in dataclasses.fields(ClaudeAgentOptions)}
 
@@ -46,25 +46,29 @@ def _system_prompt(meta):
 
 
 def _seed_text(arxiv_id):
-    """First-turn preamble carrying the whole paper.
+    """First-turn preamble: reader persona, then the whole paper.
 
     HTML rather than the PDF: the agent-SDK transport has no document
     blocks, and text source lets the model quote the paper verbatim.
     """
-    if not (arxiv_id and arxiv.valid_id(arxiv_id)):
-        return None
-    head = (
-        "We are going to discuss the following paper: "
-        f"https://arxiv.org/abs/{arxiv_id}\n\n"
-    )
-    try:
-        return head + "Full HTML source:\n\n" + arxiv.html_for_llm(arxiv_id)
-    except Exception:
-        return head + (
-            "(This paper has no arxiv HTML version, so the body is not "
-            "attached; ground answers in the abstract and the excerpts "
-            "the user attaches.)"
+    parts = []
+    who = persona.text()
+    if who:
+        parts.append("About me, the reader (calibrate your answers to this):\n\n" + who)
+    if arxiv_id and arxiv.valid_id(arxiv_id):
+        head = (
+            "We are going to discuss the following paper: "
+            f"https://arxiv.org/abs/{arxiv_id}\n\n"
         )
+        try:
+            parts.append(head + "Full HTML source:\n\n" + arxiv.html_for_llm(arxiv_id))
+        except Exception:
+            parts.append(head + (
+                "(This paper has no arxiv HTML version, so the body is not "
+                "attached; ground answers in the abstract and the excerpts "
+                "the user attaches.)"
+            ))
+    return "\n\n".join(parts) or None
 
 
 def _content_blocks(message, context, seed=None):

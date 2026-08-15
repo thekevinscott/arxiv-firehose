@@ -452,6 +452,17 @@ async function loadCitations() {
   }
 }
 
+// ---- persona -------------------------------------------------------------
+
+async function loadPersona() {
+  try {
+    const data = await (await fetch("/api/persona")).json();
+    if (!data.persona) return;
+    renderMarkdown($("persona-body"), data.persona);
+    $("persona").hidden = false;
+  } catch (e) { /* no persona pane */ }
+}
+
 // ---- boot ----------------------------------------------------------------
 
 setMode("pdf");
@@ -459,4 +470,5 @@ loadInfo();
 renderPdf();
 checkHtml();
 loadCitations();
+loadPersona();
 loadState();

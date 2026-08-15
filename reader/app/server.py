@@ -9,6 +9,7 @@ Routes:
   GET  /api/pdf/<id>        -> proxied+cached PDF bytes
   GET  /api/html/<id>       -> proxied+cached arxiv HTML (same-origin)
   GET  /api/citations/<id>  -> arxiv ids cited by the paper (+known titles)
+  GET  /api/persona         -> the reader persona (markdown, may be empty)
   POST /api/chat            -> NDJSON stream of one Claude chat turn
 """
 
@@ -23,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import arxiv, chat, tower
+from . import arxiv, chat, persona, tower
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -111,6 +112,8 @@ class Handler(BaseHTTPRequestHandler):
                 if arxiv_id:
                     self._send(200, arxiv.html(arxiv_id).encode(),
                                "text/html; charset=utf-8")
+            elif path == "/api/persona":
+                self._send_json(200, {"persona": persona.text()})
             elif path.startswith("/api/citations/"):
                 arxiv_id = self._paper_id(path, "/api/citations/")
                 if arxiv_id:
