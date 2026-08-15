@@ -327,6 +327,7 @@ async function saveState() {
 
 function clearChat() {
   transcript.length = 0;
+  sendQueue.length = 0;
   sessionId = null;
   chips = [];
   renderChips();
@@ -350,20 +351,40 @@ async function loadState() {
   } catch { /* stale or foreign fragment; start fresh */ }
 }
 
-async function sendChat(message) {
+// Messages may be sent while a reply is streaming: each submit renders the
+// user turn immediately and joins a queue; turns run sequentially because
+// continuity is session-resume (the next turn needs the previous session id).
+const sendQueue = [];
+let sending = false;
+
+function enqueueChat(message) {
   const sent = chips;
   chips = [];
   renderChips();
-
   const userTurn = { role: "user", text: message, chips: sent };
-  transcript.push(userTurn);
   renderTurn(userTurn);
+  scrollLog();
+  sendQueue.push({ message, sent, userTurn });
+  pumpChat();
+}
+
+async function pumpChat() {
+  if (sending) return;
+  sending = true;
+  $("chat-status").textContent = "thinking…";
+  while (sendQueue.length) {
+    await sendChat(sendQueue.shift());
+    $("chat-status").textContent = sendQueue.length ? "thinking…" : "";
+  }
+  sending = false;
+}
+
+async function sendChat({ message, sent, userTurn }) {
+  transcript.push(userTurn);
 
   const botEl = addMessage("assistant");
   let botText = "";
   scrollLog();
-  $("chat-status").textContent = "thinking…";
-  $("chat-send").disabled = true;
 
   try {
     const resp = await fetch("/api/chat", {
@@ -414,8 +435,6 @@ async function sendChat(message) {
   }
   transcript.push({ role: "assistant", text: botText });
   saveState();
-  $("chat-status").textContent = "";
-  $("chat-send").disabled = false;
   scrollLog();
 }
 
@@ -424,7 +443,7 @@ $("chat-form").addEventListener("submit", (e) => {
   const message = $("chat-input").value.trim();
   if (!message) return;
   $("chat-input").value = "";
-  sendChat(message);
+  enqueueChat(message);
 });
 
 $("chat-input").addEventListener("keydown", (e) => {
