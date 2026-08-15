@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arxiv reader</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="reader-page">
+
+<header>
+  <a href="/" class="back">&larr; catalogue</a>
+  <h1 id="paper-title" class="paper-title">loading…</h1>
+  <div class="head-right">
+    <button id="select-region" class="ghost" title="Draw a box on the PDF to capture a screenshot">Select region</button>
+    <button id="toggle-view" title="Toggle PDF / HTML">HTML</button>
+  </div>
+</header>
+
+<main class="reader-main">
+  <section id="viewer">
+    <div id="pdf-pages"></div>
+    <iframe id="html-frame" hidden></iframe>
+    <div id="viewer-status" class="meta"></div>
+  </section>
+
+  <aside id="side">
+    <section class="pane" id="info-pane">
+      <div class="pane-head"><h2>Paper</h2>
+        <a id="abs-link" href="#" target="_blank" rel="noopener" class="meta">abs&nearr;</a>
+      </div>
+      <div class="pane-body" id="info-body">
+        <div id="info-authors" class="meta"></div>
+        <div id="info-cats" class="meta"></div>
+        <p id="info-abstract"></p>
+      </div>
+    </section>
+
+    <section class="pane grow" id="chat-pane">
+      <div class="pane-head"><h2>Chat</h2><span id="chat-status" class="meta"></span></div>
+      <div id="context-chips"></div>
+      <div class="pane-body" id="chat-log"></div>
+      <form id="chat-form">
+        <textarea id="chat-input" rows="2"
+          placeholder="Ask about the paper… (selections and screenshots attach automatically)"></textarea>
+        <button id="chat-send" type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="pane" id="citations-pane">
+      <div class="pane-head"><h2>Citations</h2><span id="cite-status" class="meta"></span></div>
+      <ul class="pane-body paper-list" id="citations"></ul>
+    </section>
+  </aside>
+</main>
+
+<script type="module" src="/reader.js"></script>
+</body>
+</html>

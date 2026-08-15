@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arxiv catalogue</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="catalogue-page">
+
+<header>
+  <h1>arxiv catalogue</h1>
+  <div class="head-right">
+    <span id="count" class="meta"></span>
+  </div>
+</header>
+
+<main class="catalogue-main">
+  <form id="search-form">
+    <input id="q" type="search" placeholder="Search titles… (or paste an arxiv id and press Enter)" autofocus>
+  </form>
+  <div id="status" class="meta"></div>
+  <ul id="papers" class="paper-list"></ul>
+</main>
+
+<script src="/catalogue.js"></script>
+</body>
+</html>

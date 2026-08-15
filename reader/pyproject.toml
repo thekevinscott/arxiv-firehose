@@ -1,0 +1,20 @@
+[project]
+name = "arxiv-reader"
+version = "0.1.0"
+description = "Per-paper reading UI on top of arxiv-firehose: PDF/HTML viewer, citations, and a Claude chat with selection context."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk>=0.2.134",
+]
+
+[project.scripts]
+arxiv-reader = "app.server:main"
+
+[build-system]
+requires = ["uv_build>=0.10.11,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "app"
+module-root = ""
