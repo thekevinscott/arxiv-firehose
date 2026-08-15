@@ -98,8 +98,8 @@ async function checkHtml() {
     htmlAvailable = false;
   }
   if (!htmlAvailable) {
-    $("toggle-view").disabled = true;
-    $("toggle-view").title = "This paper has no arxiv HTML version";
+    $("mode-html").disabled = true;
+    $("mode-html").title = "This paper has no arxiv HTML version";
   }
 }
 
@@ -107,14 +107,14 @@ function setMode(next) {
   mode = next;
   $("pdf-pages").hidden = mode !== "pdf";
   $("html-frame").hidden = mode !== "html";
-  $("toggle-view").textContent = mode === "pdf" ? "HTML" : "PDF";
+  $("mode-pdf").classList.toggle("active", mode === "pdf");
+  $("mode-html").classList.toggle("active", mode === "html");
   $("select-region").hidden = mode !== "pdf";
   if (mode === "html") loadHtml();
 }
 
-$("toggle-view").addEventListener("click", () => {
-  setMode(mode === "pdf" ? "html" : "pdf");
-});
+$("mode-pdf").addEventListener("click", () => setMode("pdf"));
+$("mode-html").addEventListener("click", () => setMode("html"));
 
 // ---- PDF region selection -> screenshot chip ----------------------------
 

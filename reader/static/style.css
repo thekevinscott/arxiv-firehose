@@ -95,6 +95,39 @@ button.active { background: var(--accent); border-color: var(--accent); color: #
   position: relative;
   background: #e8e6e1;
 }
+#viewer-bar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--pane);
+  border-bottom: 1px solid var(--line);
+}
+.bar-spring { flex: 1; }
+.info-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 2px 0 4px;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.seg-btn {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 14px;
+  background: var(--pane);
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
 #viewer-status { padding: 8px 12px; }
 #pdf-pages { padding: 12px; }
 #pdf-pages.selecting { cursor: crosshair; }

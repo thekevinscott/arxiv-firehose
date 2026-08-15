@@ -9,17 +9,17 @@
 </head>
 <body class="reader-page">
 
-<header>
-  <a href="/" class="back">&larr; catalogue</a>
-  <h1 id="paper-title" class="paper-title">loading…</h1>
-  <div class="head-right">
-    <button id="select-region" class="ghost" title="Draw a box on the PDF to capture a screenshot">Select region</button>
-    <button id="toggle-view" title="Toggle PDF / HTML">HTML</button>
-  </div>
-</header>
-
 <main class="reader-main">
   <section id="viewer">
+    <div id="viewer-bar">
+      <a href="/" class="back" title="Back to catalogue">&larr;</a>
+      <div class="seg">
+        <button id="mode-pdf" class="seg-btn active">PDF</button>
+        <button id="mode-html" class="seg-btn">HTML</button>
+      </div>
+      <span class="bar-spring"></span>
+      <button id="select-region" class="ghost" title="Draw a box on the PDF to capture a screenshot">Select region</button>
+    </div>
     <div id="pdf-pages"></div>
     <iframe id="html-frame" hidden></iframe>
     <div id="viewer-status" class="meta"></div>
@@ -31,6 +31,7 @@
         <a id="abs-link" href="#" target="_blank" rel="noopener" class="meta">abs&nearr;</a>
       </div>
       <div class="pane-body" id="info-body">
+        <h1 id="paper-title" class="info-title">loading…</h1>
         <div id="info-authors" class="meta"></div>
         <div id="info-cats" class="meta"></div>
         <p id="info-abstract"></p>
