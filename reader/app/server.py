@@ -10,6 +10,7 @@ Routes:
   GET  /api/html/<id>       -> proxied+cached arxiv HTML (same-origin)
   GET  /api/citations/<id>  -> arxiv ids cited by the paper (+known titles)
   GET  /api/persona         -> the reader persona (markdown, may be empty)
+  GET  /api/system-prompt   -> custom system-prompt rules (markdown, may be empty)
   POST /api/chat            -> NDJSON stream of one Claude chat turn
 """
 
@@ -114,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
                                "text/html; charset=utf-8")
             elif path == "/api/persona":
                 self._send_json(200, {"persona": persona.text()})
+            elif path == "/api/system-prompt":
+                self._send_json(200, {"system_prompt": persona.system()})
             elif path.startswith("/api/citations/"):
                 arxiv_id = self._paper_id(path, "/api/citations/")
                 if arxiv_id:

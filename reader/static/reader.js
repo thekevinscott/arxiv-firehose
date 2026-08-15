@@ -454,13 +454,18 @@ async function loadCitations() {
 
 // ---- persona -------------------------------------------------------------
 
-async function loadPersona() {
+async function loadAccordion(url, field, id) {
   try {
-    const data = await (await fetch("/api/persona")).json();
-    if (!data.persona) return;
-    renderMarkdown($("persona-body"), data.persona);
-    $("persona").hidden = false;
-  } catch (e) { /* no persona pane */ }
+    const data = await (await fetch(url)).json();
+    if (!data[field]) return;
+    renderMarkdown($(id + "-body"), data[field]);
+    $(id).hidden = false;
+  } catch (e) { /* pane stays hidden */ }
+}
+
+function loadPersona() {
+  loadAccordion("/api/persona", "persona", "persona");
+  loadAccordion("/api/system-prompt", "system_prompt", "system-prompt");
 }
 
 // ---- panes: resize + collapse --------------------------------------------

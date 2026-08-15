@@ -31,18 +31,22 @@ def _options(**kwargs):
 
 
 def _system_prompt(meta):
-    if not meta:
-        return "You are helping the user read an arxiv paper."
-    authors = ", ".join(meta.get("authors") or [])
-    return (
-        "You are helping the user read an arxiv paper. Ground answers in the "
-        "paper; when the user attaches a selection or screenshot, that excerpt "
-        "is the context for their question. Be concise and precise.\n\n"
-        f"Paper: {meta.get('title')}\n"
-        f"arXiv id: {meta.get('arxiv_id')}\n"
-        f"Authors: {authors}\n"
-        f"Abstract: {meta.get('abstract')}"
-    )
+    parts = ["You are helping the user read an arxiv paper."]
+    if meta:
+        authors = ", ".join(meta.get("authors") or [])
+        parts[0] = (
+            "You are helping the user read an arxiv paper. Ground answers in the "
+            "paper; when the user attaches a selection or screenshot, that excerpt "
+            "is the context for their question. Be concise and precise.\n\n"
+            f"Paper: {meta.get('title')}\n"
+            f"arXiv id: {meta.get('arxiv_id')}\n"
+            f"Authors: {authors}\n"
+            f"Abstract: {meta.get('abstract')}"
+        )
+    custom = persona.system()
+    if custom:
+        parts.append("Response style rules (follow strictly):\n\n" + custom)
+    return "\n\n".join(parts)
 
 
 def _seed_text(arxiv_id):
