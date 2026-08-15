@@ -29,7 +29,16 @@
 
   <aside id="side">
     <section class="pane grow" id="chat-pane">
-      <div class="pane-head"><h2>Chat</h2><span id="chat-status" class="meta"></span></div>
+      <div class="pane-head">
+        <h2>Chat</h2><span id="chat-status" class="meta"></span>
+        <span class="head-spring"></span>
+        <select id="chat-model" class="head-select" title="Model for chat turns">
+          <option value="opus">Opus</option>
+          <option value="sonnet">Sonnet</option>
+          <option value="haiku">Haiku</option>
+        </select>
+        <button id="chat-clear" class="ghost head-btn" title="Clear the conversation">Clear</button>
+      </div>
       <details id="persona" hidden>
         <summary>Persona</summary>
         <div id="persona-body"></div>

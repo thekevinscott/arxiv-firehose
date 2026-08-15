@@ -75,7 +75,7 @@ def _seed_text(arxiv_id):
     return "\n\n".join(parts) or None
 
 
-def _content_blocks(message, context, seed=None):
+def _content_blocks(message, context, seed=None, style=None):
     blocks = []
     if seed:
         blocks.append({"type": "text", "text": seed})
@@ -99,15 +99,25 @@ def _content_blocks(message, context, seed=None):
                 }
             )
     blocks.append({"type": "text", "text": message})
+    if style:
+        # Repeated per turn: with a whole paper in context, system-prompt
+        # style rules alone get diluted; proximity to the question wins.
+        blocks.append(
+            {
+                "type": "text",
+                "text": "(Standing style rules for this answer — follow them "
+                "strictly:\n\n" + style + ")",
+            }
+        )
     return blocks
 
 
-async def _input(message, context, seed):
+async def _input(message, context, seed, style):
     yield {
         "type": "user",
         "message": {
             "role": "user",
-            "content": _content_blocks(message, context, seed),
+            "content": _content_blocks(message, context, seed, style),
         },
     }
 
@@ -122,10 +132,12 @@ async def run(payload, meta, emit):
     # A fresh conversation (no session to resume) opens with the paper
     # itself; every later turn already has it in the resumed transcript.
     seed = None if payload.get("session_id") else _seed_text(payload.get("arxiv_id"))
+    style = persona.system() or None
 
     options = _options(
         system_prompt=_system_prompt(meta),
         resume=payload.get("session_id") or None,
+        model=payload.get("model") or "opus",
         max_turns=1,
         allowed_tools=[],
         disallowed_tools=["Bash", "Read", "Write", "Edit", "WebSearch", "WebFetch", "Task"],
@@ -136,7 +148,7 @@ async def run(payload, meta, emit):
 
     streamed_any = False
     async for msg in query(
-        prompt=_input(message, payload.get("context"), seed), options=options
+        prompt=_input(message, payload.get("context"), seed, style), options=options
     ):
         if isinstance(msg, SystemMessage) and msg.subtype == "init":
             session_id = (msg.data or {}).get("session_id")

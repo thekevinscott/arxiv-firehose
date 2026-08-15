@@ -207,6 +207,17 @@ canvas.pdf-page {
 .pane-head h2::before { content: "\25BE"; margin-right: 6px; font-size: 9px; }
 .pane.collapsed .pane-head h2::before { content: "\25B8"; }
 .pane-head a { text-decoration: none; }
+.head-spring { flex: 1; }
+.head-btn { font-size: 11.5px; padding: 2px 8px; }
+.head-select {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--pane);
+  color: var(--muted);
+}
 
 .pane-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 10px; min-height: 0; }
 

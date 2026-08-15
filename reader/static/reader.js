@@ -325,6 +325,18 @@ async function saveState() {
   } catch { /* best-effort */ }
 }
 
+function clearChat() {
+  transcript.length = 0;
+  sessionId = null;
+  chips = [];
+  renderChips();
+  $("chat-log").replaceChildren();
+  $("chat-status").textContent = "";
+  history.replaceState(null, "", location.pathname);
+}
+
+$("chat-clear").addEventListener("click", clearChat);
+
 async function loadState() {
   if (!location.hash.startsWith("#c=")) return;
   try {
@@ -360,6 +372,7 @@ async function sendChat(message) {
       body: JSON.stringify({
         arxiv_id: arxivId,
         session_id: sessionId,
+        model: $("chat-model").value,
         message,
         context: sent.map(({ type, text, data, media_type }) =>
           type === "image" ? { type, data, media_type } : { type, text }),
@@ -539,6 +552,14 @@ initSplitX();
 initSplitY();
 initCollapse("chat-pane", "chatCollapsed");
 initCollapse("citations-pane", "citeCollapsed");
+
+function initModelPicker() {
+  const sel = $("chat-model");
+  const saved = store.get("model");
+  if (saved && [...sel.options].some((o) => o.value === saved)) sel.value = saved;
+  sel.addEventListener("change", () => store.set("model", sel.value));
+}
+initModelPicker();
 
 // ---- boot ----------------------------------------------------------------
 
