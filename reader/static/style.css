@@ -93,9 +93,13 @@ button.active { background: var(--accent); border-color: var(--accent); color: #
 .reader-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 420px;
+  grid-template-columns: 1fr 6px 420px;
   min-height: 0;
 }
+
+#split-x { cursor: col-resize; background: var(--line); touch-action: none; }
+#split-y { height: 6px; flex: none; cursor: row-resize; background: var(--line); touch-action: none; }
+#split-x:hover, #split-y:hover, .dragging { background: var(--accent); }
 
 #viewer {
   overflow-y: auto;
@@ -130,7 +134,9 @@ button.active { background: var(--accent); border-color: var(--accent); color: #
   background: var(--pane);
 }
 .seg-btn + .seg-btn { border-left: 1px solid var(--line); }
-.seg-btn.active { background: var(--accent); color: #fff; }
+/* :hover included: the generic button:hover rule outspecifies .active and
+   would paint accent-on-accent (invisible label; sticky on iPad taps). */
+.seg-btn.active, .seg-btn.active:hover { background: var(--accent); color: #fff; }
 
 #viewer-status { padding: 8px 12px; }
 #pdf-pages { padding: 12px; }
@@ -141,6 +147,8 @@ canvas.pdf-page {
   margin: 0 auto 12px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.18);
   background: #fff;
+  max-width: 100%;
+  height: auto;
 }
 #html-frame { width: 100%; height: 100%; border: 0; background: #fff; }
 
@@ -170,6 +178,16 @@ canvas.pdf-page {
 .pane.grow { flex: 1; }
 #citations-pane { max-height: 30%; min-height: 90px; }
 
+.pane.collapsed { flex: none; max-height: none; height: auto !important; min-height: 0 !important; }
+/* !important: id-selector display rules (#chat-form etc.) outspecify this */
+.pane.collapsed > *:not(.pane-head) { display: none !important; }
+/* chat collapsed -> citations takes over the column */
+#side:has(#chat-pane.collapsed) #citations-pane:not(.collapsed) {
+  flex: 1;
+  max-height: none;
+  height: auto !important;
+}
+
 .pane-head {
   display: flex;
   align-items: baseline;
@@ -183,7 +201,11 @@ canvas.pdf-page {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
+  cursor: pointer;
+  user-select: none;
 }
+.pane-head h2::before { content: "\25BE"; margin-right: 6px; font-size: 9px; }
+.pane.collapsed .pane-head h2::before { content: "\25B8"; }
 .pane-head a { text-decoration: none; }
 
 .pane-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 10px; min-height: 0; }

@@ -463,6 +463,78 @@ async function loadPersona() {
   } catch (e) { /* no persona pane */ }
 }
 
+// ---- panes: resize + collapse --------------------------------------------
+
+const store = {
+  get(k) { try { return localStorage.getItem("reader." + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem("reader." + k, v); } catch (e) {} },
+};
+
+function drag(bar, onMove, onDone) {
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("dragging");
+    const move = (ev) => onMove(ev);
+    const up = () => {
+      bar.classList.remove("dragging");
+      bar.removeEventListener("pointermove", move);
+      onDone();
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up, { once: true });
+  });
+}
+
+function initSplitX() {
+  const mainEl = document.querySelector(".reader-main");
+  const size = (w) => { mainEl.style.gridTemplateColumns = `1fr 6px ${w}px`; };
+  const saved = parseInt(store.get("sideW"), 10);
+  let width = saved || 420;
+  if (saved) size(saved);
+  drag($("split-x"),
+    (ev) => {
+      width = Math.min(Math.max(window.innerWidth - ev.clientX, 260),
+                       Math.round(window.innerWidth * 0.7));
+      size(width);
+    },
+    () => store.set("sideW", width));
+}
+
+function initSplitY() {
+  const pane = $("citations-pane");
+  const size = (h) => {
+    pane.style.height = h + "px";
+    pane.style.maxHeight = "none";
+    pane.style.flex = "none";
+  };
+  const saved = parseInt(store.get("citeH"), 10);
+  let height = saved || 0;
+  if (saved) size(saved);
+  drag($("split-y"),
+    (ev) => {
+      const side = $("side").getBoundingClientRect();
+      height = Math.min(Math.max(side.bottom - ev.clientY - 6, 60),
+                        Math.round(side.height * 0.8));
+      size(height);
+    },
+    () => store.set("citeH", height));
+}
+
+function initCollapse(paneId, key) {
+  const pane = $(paneId);
+  pane.classList.toggle("collapsed", store.get(key) === "1");
+  pane.querySelector(".pane-head h2").addEventListener("click", () => {
+    const collapsed = pane.classList.toggle("collapsed");
+    store.set(key, collapsed ? "1" : "0");
+  });
+}
+
+initSplitX();
+initSplitY();
+initCollapse("chat-pane", "chatCollapsed");
+initCollapse("citations-pane", "citeCollapsed");
+
 // ---- boot ----------------------------------------------------------------
 
 setMode("pdf");
