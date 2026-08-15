@@ -118,6 +118,23 @@ def html(arxiv_id):
     return text
 
 
+_DEADWEIGHT_RE = re.compile(
+    r"<head\b.*?</head>|<script\b.*?</script>|<style\b.*?</style>|<!--.*?-->",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def html_for_llm(arxiv_id, cap=400_000):
+    """The paper's HTML source slimmed for a model prompt: head/scripts/
+    styles and comments dropped (no paper content, pure token weight),
+    whitespace collapsed, capped so a huge paper can't blow the context."""
+    body = _DEADWEIGHT_RE.sub("", html(arxiv_id))
+    body = re.sub(r"[ \t]+", " ", body)
+    if len(body) > cap:
+        body = body[:cap] + "\n\n[source truncated here]"
+    return body
+
+
 _CITE_RE = re.compile(
     r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})"
     r"|arXiv[.:]\s*(\d{4}\.\d{4,5})",

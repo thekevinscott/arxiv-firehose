@@ -11,6 +11,7 @@ let htmlLoaded = false;
 let htmlAvailable = null; // null = unknown yet
 let sessionId = null;
 let chips = []; // {type:"text",text} | {type:"image",data,media_type,dataUrl}
+const transcript = []; // {role, text, chips?} -- mirrored into the URL fragment
 
 // ---- paper info ----------------------------------------------------------
 
@@ -256,27 +257,97 @@ function scrollLog() {
   log.scrollTop = log.scrollHeight;
 }
 
+function renderTurn(turn) {
+  const el = addMessage(turn.role);
+  for (const chip of turn.chips || []) {
+    if (chip.type === "image") {
+      if (chip.dataUrl) {
+        const img = document.createElement("img");
+        img.src = chip.dataUrl;
+        img.className = "msg-img";
+        el.appendChild(img);
+      } else {
+        // Restored from the URL, where image bytes don't fit; the real
+        // image still lives in the server-side session.
+        const ph = document.createElement("div");
+        ph.className = "meta";
+        ph.textContent = "[screenshot]";
+        el.appendChild(ph);
+      }
+    } else {
+      const q = document.createElement("blockquote");
+      q.textContent = chip.text;
+      el.appendChild(q);
+    }
+  }
+  if (turn.role === "user") {
+    const p = document.createElement("p");
+    p.textContent = turn.text;
+    el.appendChild(p);
+  } else {
+    el.textContent = turn.text;
+  }
+  return el;
+}
+
+// ---- conversation in the URL --------------------------------------------
+// Deflate + base64url in the fragment: never sent to the server, a few KB
+// for a typical conversation, restorable by anyone who has this server.
+// Image chips are stored as placeholders (base64 PNG doesn't compress and
+// would blow the URL); resume fidelity is unaffected -- images live in the
+// server-side SDK session.
+
+async function deflate(text) {
+  const stream = new Blob([text]).stream()
+    .pipeThrough(new CompressionStream("deflate-raw"));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+async function inflate(b64url) {
+  const s = atob(b64url.replaceAll("-", "+").replaceAll("_", "/"));
+  const bytes = Uint8Array.from(s, (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream()
+    .pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Response(stream).text();
+}
+
+async function saveState() {
+  try {
+    const slim = transcript.map((t) => ({
+      ...t,
+      chips: (t.chips || []).map((c) =>
+        c.type === "image" ? { type: "image" } : { type: "text", text: c.text }),
+    }));
+    const state = { v: 1, session_id: sessionId, transcript: slim };
+    const hash = "#c=" + (await deflate(JSON.stringify(state)));
+    history.replaceState(null, "", location.pathname + hash);
+  } catch { /* best-effort */ }
+}
+
+async function loadState() {
+  if (!location.hash.startsWith("#c=")) return;
+  try {
+    const state = JSON.parse(await inflate(location.hash.slice(3)));
+    sessionId = state.session_id || null;
+    for (const turn of state.transcript || []) {
+      transcript.push(turn);
+      renderTurn(turn);
+    }
+    scrollLog();
+  } catch { /* stale or foreign fragment; start fresh */ }
+}
+
 async function sendChat(message) {
   const sent = chips;
   chips = [];
   renderChips();
 
-  const userEl = addMessage("user");
-  for (const chip of sent) {
-    if (chip.type === "image") {
-      const img = document.createElement("img");
-      img.src = chip.dataUrl;
-      img.className = "msg-img";
-      userEl.appendChild(img);
-    } else {
-      const q = document.createElement("blockquote");
-      q.textContent = chip.text;
-      userEl.appendChild(q);
-    }
-  }
-  const p = document.createElement("p");
-  p.textContent = message;
-  userEl.appendChild(p);
+  const userTurn = { role: "user", text: message, chips: sent };
+  transcript.push(userTurn);
+  renderTurn(userTurn);
 
   const botEl = addMessage("assistant");
   scrollLog();
@@ -320,6 +391,8 @@ async function sendChat(message) {
   } catch (e) {
     botEl.textContent += "\n[error] " + e;
   }
+  transcript.push({ role: "assistant", text: botEl.textContent });
+  saveState();
   $("chat-status").textContent = "";
   $("chat-send").disabled = false;
   scrollLog();
@@ -384,3 +457,4 @@ loadInfo();
 renderPdf();
 checkHtml();
 loadCitations();
+loadState();

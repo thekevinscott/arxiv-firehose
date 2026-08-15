@@ -19,6 +19,8 @@ from claude_agent_sdk import (
     query,
 )
 
+from . import arxiv
+
 _OPTION_FIELDS = {f.name for f in dataclasses.fields(ClaudeAgentOptions)}
 
 
@@ -43,8 +45,32 @@ def _system_prompt(meta):
     )
 
 
-def _content_blocks(message, context):
+def _seed_text(arxiv_id):
+    """First-turn preamble carrying the whole paper.
+
+    HTML rather than the PDF: the agent-SDK transport has no document
+    blocks, and text source lets the model quote the paper verbatim.
+    """
+    if not (arxiv_id and arxiv.valid_id(arxiv_id)):
+        return None
+    head = (
+        "We are going to discuss the following paper: "
+        f"https://arxiv.org/abs/{arxiv_id}\n\n"
+    )
+    try:
+        return head + "Full HTML source:\n\n" + arxiv.html_for_llm(arxiv_id)
+    except Exception:
+        return head + (
+            "(This paper has no arxiv HTML version, so the body is not "
+            "attached; ground answers in the abstract and the excerpts "
+            "the user attaches.)"
+        )
+
+
+def _content_blocks(message, context, seed=None):
     blocks = []
+    if seed:
+        blocks.append({"type": "text", "text": seed})
     for chip in context or []:
         if chip.get("type") == "text" and chip.get("text"):
             blocks.append(
@@ -68,10 +94,13 @@ def _content_blocks(message, context):
     return blocks
 
 
-async def _input(message, context):
+async def _input(message, context, seed):
     yield {
         "type": "user",
-        "message": {"role": "user", "content": _content_blocks(message, context)},
+        "message": {
+            "role": "user",
+            "content": _content_blocks(message, context, seed),
+        },
     }
 
 
@@ -81,6 +110,10 @@ async def run(payload, meta, emit):
     if not message:
         emit({"type": "error", "message": "empty message"})
         return
+
+    # A fresh conversation (no session to resume) opens with the paper
+    # itself; every later turn already has it in the resumed transcript.
+    seed = None if payload.get("session_id") else _seed_text(payload.get("arxiv_id"))
 
     options = _options(
         system_prompt=_system_prompt(meta),
@@ -94,7 +127,9 @@ async def run(payload, meta, emit):
     )
 
     streamed_any = False
-    async for msg in query(prompt=_input(message, payload.get("context")), options=options):
+    async for msg in query(
+        prompt=_input(message, payload.get("context"), seed), options=options
+    ):
         if isinstance(msg, SystemMessage) and msg.subtype == "init":
             session_id = (msg.data or {}).get("session_id")
             if session_id:

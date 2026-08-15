@@ -11,9 +11,19 @@ vendored under `static/vendor/`).
   PDF.js) with a toggle to arxiv's HTML version. Right column:
   - **Paper** — metadata + abstract (arxiv export API, works for any id).
   - **Chat** — an ongoing conversation with Claude (claude-agent-sdk,
-    session-resumed per turn). Selecting text in the HTML view or drawing
-    a box on the PDF (Select region) auto-attaches that context as a chip
-    on the next message; screenshots go up as images.
+    session-resumed per turn). The first turn is seeded with "we are going
+    to discuss the following paper", the abs URL, and the paper's full
+    HTML source (slimmed: head/scripts/styles stripped, 400k-char cap), so
+    the whole conversation is grounded in the body, not just the abstract.
+    Selecting text in the HTML view or drawing a box on the PDF (Select
+    region) auto-attaches that context as a chip on the next message;
+    screenshots go up as images.
+  - The conversation is mirrored into the URL fragment (deflate +
+    base64url, a few KB for a typical chat) after every turn, so a reader
+    URL can be bookmarked or shared and the chat log + session resume
+    survive a reload. Screenshots are placeholders on restore -- their
+    bytes live in the server-side session, so continuing the conversation
+    keeps full fidelity.
   - **Citations** — arxiv ids extracted from the paper's HTML, linking to
     their own reader pages in new tabs.
 
