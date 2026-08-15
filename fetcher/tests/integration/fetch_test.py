@@ -155,15 +155,15 @@ def describe_status():
         # No markdown: rendering is explicit-only.
         assert "Markdown on disk:   0" in report
 
-    def it_reports_classified_counts(
+    def it_omits_classification_counts(
         data_dir_classify, arxiv, fake_classifier,
     ):
-        # Ingest then classify as two separate calls -- the production
-        # split. ``status`` should still report Classified counts because
-        # it scans the classifications/ folder regardless of how it got there.
+        # Classification counts were removed from the report (the
+        # classify stage is parked on a wip branch); status must not
+        # regress into reporting them even when classifications exist.
         fetch(data_dir_classify)
         classify(data_dir_classify, classifier=fake_classifier)
 
         report = status(data_dir_classify)
 
-        assert "Classified:         4" in report
+        assert "Classified" not in report
